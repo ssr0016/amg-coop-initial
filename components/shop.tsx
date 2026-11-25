@@ -2,13 +2,24 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
-import { ArrowDown, ArrowRight, ArrowLeft, Search, ShoppingBag, Truck, Sprout, Package, Plus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  ArrowDown, ArrowRight, ArrowLeft, Search, ShoppingBag, Truck, Sprout, Package, Plus,
+  ShoppingBasket, House, Backpack, Calculator, SoapDispenserDroplet, Gift, Pause, Play,
+} from "lucide-react";
 import { money, nextStatuses, orderTotal, productCategories, type Order, type Product, type Store, type User } from "../lib/models";
 import { cancelOrder, checkout, setQuantity } from "../lib/storage";
 import { Empty, Status, useAction } from "./shared";
 
 const categories = ["All", ...productCategories];
+const categoryIcons = {
+  "Food Products": ShoppingBasket,
+  "Household Products": House,
+  "School Supplies": Backpack,
+  "Office Supplies": Calculator,
+  Essentials: SoapDispenserDroplet,
+  Souvenirs: Gift,
+};
 const pageSize = 8;
 
 function Photo({ product, sizes }: { product: Product; sizes: string }) {
@@ -31,10 +42,104 @@ function Add({ product, user, compact = false }: { product: Product; user?: User
     <Link href="/login" className={className} aria-label={compact ? `Sign in to add ${product.name}` : undefined}>{icon}{!compact && "Sign in to shop"}</Link>;
 }
 
+const heroSlides = [
+  {
+    category: "Food Products",
+    description: "Stock your pantry with rice, Benguet coffee, and other co-op favorites.",
+    image: "/images/hero-food.webp",
+  },
+  {
+    category: "Household Products",
+    description: "Find soft cotton towels, dish soap, and supplies for everyday chores.",
+    image: "/images/hero-household.webp",
+  },
+  {
+    category: "School Supplies",
+    description: "Pack notebooks and colored pencils for class, homework, and creative projects.",
+    image: "/images/hero-school-supplies.webp",
+  },
+  {
+    category: "Office Supplies",
+    description: "Keep your desk stocked with staplers, calculators, and tools for paperwork.",
+    image: "/images/hero-office.webp",
+  },
+  {
+    category: "Essentials",
+    description: "Pick up handcrafted bath soap, reusable water bottles, and daily staples.",
+    image: "/images/hero-essentials.webp",
+  },
+  {
+    category: "Souvenirs",
+    description: "Take home a colorful mug or canvas tote, or pick one up as a gift.",
+    image: "/images/hero-souvenirs.webp",
+  },
+] satisfies { category: (typeof productCategories)[number]; description: string; image: string }[];
+
+function Hero() {
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+
+  useEffect(() => {
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const respectMotionPreference = () => {
+      if (motion.matches) setPaused(true);
+    };
+    respectMotionPreference();
+    motion.addEventListener("change", respectMotionPreference);
+    return () => motion.removeEventListener("change", respectMotionPreference);
+  }, []);
+
+  useEffect(() => {
+    if (paused || hovered) return;
+    const timer = window.setTimeout(() => {
+      setActiveSlide((current) => (current + 1) % heroSlides.length);
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [activeSlide, paused, hovered]);
+
+  return <section className="hero" aria-label="Featured categories" aria-roledescription="carousel"
+    onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
+    onFocus={(event) => {
+      if (event.target.matches(":focus-visible")) setPaused(true);
+    }}>
+    <div className="hero-content">
+      <p className="eyebrow"><Sprout size={18} aria-hidden /> THE COOPERATIVE MARKET</p>
+      <div className="hero-copy" aria-live={paused || hovered ? "polite" : "off"} aria-atomic="true">
+        {heroSlides.map((slide, index) => (
+          <div key={slide.category} className="hero-slide" data-active={index === activeSlide} aria-hidden={index !== activeSlide}>
+            <h1>{slide.category}</h1>
+            <p>{slide.description}</p>
+          </div>
+        ))}
+      </div>
+      <a href="#catalog" className="button hero-button">Browse products <ArrowDown size={17} aria-hidden /></a>
+    </div>
+    <div className="hero-photo">
+      {heroSlides.map((slide, index) => (
+        <Image key={slide.category} className="hero-slide" data-active={index === activeSlide}
+          src={slide.image} alt="" fill preload={index === 0} fetchPriority={index === 0 ? undefined : "low"}
+          sizes="(max-width: 700px) calc(100vw - 32px), (max-width: 1304px) 54vw, 670px" />
+      ))}
+      <div className="hero-controls" role="group" aria-label="Slideshow controls">
+        <button type="button" aria-label={paused ? "Play slideshow" : "Pause slideshow"} onClick={() => setPaused(!paused)}>
+          {paused ? <Play size={15} aria-hidden /> : <Pause size={15} aria-hidden />}
+        </button>
+        {heroSlides.map((slide, index) => (
+          <button key={slide.category} type="button" className="hero-dot"
+            aria-label={"Show " + slide.category} aria-current={index === activeSlide ? "true" : undefined}
+            onClick={() => setActiveSlide(index)} />
+        ))}
+      </div>
+    </div>
+  </section>;
+}
+
 export function Catalog({ products, user }: { products: Product[]; user?: User }) {
   const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const catalogHeading = useRef<HTMLHeadingElement>(null);
   const term = search.toLowerCase().trim();
   const shown = products.filter((product) => (category === "All" || product.category === category) &&
     product.name.toLowerCase().includes(term));
@@ -42,18 +147,28 @@ export function Catalog({ products, user }: { products: Product[]; user?: User }
   const currentPage = Math.min(page, Math.max(1, pageCount));
   const start = (currentPage - 1) * pageSize;
   return <div className="wrap">
-    <section className="hero">
-      <div className="hero-content">
-        <p className="eyebrow"><Sprout size={18} aria-hidden /> THE COOPERATIVE MARKET</p>
-        <h1>Good food.<br />Grown together.</h1>
-        <p>Shop food, everyday essentials, and gifts from your cooperative.</p>
-        <a href="#catalog" className="button hero-button">Browse products <ArrowDown size={17} aria-hidden /></a>
+    <Hero />
+    <section className="category-shortcuts" aria-labelledby="category-shortcuts-heading">
+      <h2 id="category-shortcuts-heading">Shop by category</h2>
+      <div className="category-shortcuts-grid">
+        {productCategories.map((name) => {
+          const Icon = categoryIcons[name];
+          return <button key={name} type="button" aria-controls="catalog" aria-pressed={category === name}
+            onClick={() => {
+              setCategory(name);
+              setSearch("");
+              setPage(1);
+              catalogHeading.current?.focus();
+            }}>
+            <Icon size={23} aria-hidden />
+            {name}
+          </button>;
+        })}
       </div>
-      <div className="hero-photo"><Image src="/images/market.webp" alt="A woven basket filled with fresh vegetables" fill preload sizes="(max-width: 680px) 100vw, 58vw" unoptimized /></div>
     </section>
     <section id="catalog" className="catalog">
       <div className="catalog-head">
-        <h2>Shop the market</h2>
+        <h2 ref={catalogHeading} tabIndex={-1}>Shop the market</h2>
         <label className="search">
           Search products
           <span className="search-field"><Search size={19} aria-hidden />

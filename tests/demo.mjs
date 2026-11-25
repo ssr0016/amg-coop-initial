@@ -10,6 +10,7 @@ try {
   const categories = ["Food Products", "Household Products", "School Supplies", "Office Supplies", "Essentials", "Souvenirs"];
   const base = process.env.DEMO_URL ?? "http://localhost:3000";
   const go = (path) => page.goto(base + path);
+  const filters = page.getByRole("group", { name: "Product categories" });
   const button = (name) => page.getByRole("button", { name, exact: true });
   const link = (name) => page.getByRole("link", { name, exact: true });
   const field = (name) => page.getByLabel(name, { exact: true });
@@ -24,6 +25,28 @@ try {
     await field("Password").fill(password);
     await button("Sign in").press("Enter");
   };
+
+  await go("/");
+  const hero = page.getByRole("region", { name: "Featured categories" });
+  const browse = hero.getByRole("link", { name: "Browse products" });
+  const showSlide = (category) => hero.getByRole("button", { name: "Show " + category, exact: true });
+  await hero.waitFor({ timeout: 3000 });
+  assert.equal(await showSlide("Food Products").getAttribute("aria-current"), "true");
+  const heroHeight = (await hero.boundingBox()).height;
+  const buttonOffset = async () => (await browse.boundingBox()).y - (await hero.boundingBox()).y;
+  const browseTop = await buttonOffset();
+  await hero.getByRole("heading", { name: "Household Products" }).waitFor({ timeout: 7000 });
+  await hero.getByRole("button", { name: "Pause slideshow" }).click();
+
+  for (const category of categories) {
+    await showSlide(category).press("Enter");
+    await hero.getByRole("heading", { name: category, exact: true }).waitFor();
+    assert.equal(await showSlide(category).getAttribute("aria-current"), "true");
+    assert.equal((await hero.boundingBox()).height, heroHeight);
+    assert.equal(await buttonOffset(), browseTop);
+  }
+  await browse.click();
+  await page.waitForURL((url) => url.hash === "#catalog");
 
   await go("/cart");
   await heading("Sign in");
@@ -102,7 +125,7 @@ try {
   await link("Shop").press("Enter");
   await page.waitForURL((url) => url.pathname === "/");
   await page.reload();
-  await button("Food Products").press("Enter");
+  await filters.getByRole("button", { name: "Food Products", exact: true }).press("Enter");
   await mango.getByText("Out of Stock", { exact: true }).waitFor();
   assert.equal(await mango.getByRole("button", { name: "Add Demo Mango to cart" }).isDisabled(), true);
   const verifyPhoto = async (photo) => {
@@ -128,9 +151,10 @@ try {
 
   await link("Sign in").press("Enter");
   await login("shopper@coop.test", "shopper123");
-  await page.getByRole("heading", { name: /Good food.\s*Grown together./ }).waitFor();
+  await browse.waitFor();
   const cards = page.locator(".product-card");
-  const filters = page.getByRole("group", { name: "Product categories" });
+  const quickCategories = page.getByRole("region", { name: "Shop by category" });
+  assert.deepEqual(await quickCategories.getByRole("button").allTextContents(), categories);
   assert.deepEqual(await filters.getByRole("button").allTextContents(), ["All", ...categories]);
   assert.equal(await cards.count(), 8);
   assert.equal(await button("Prev").isDisabled(), true);
@@ -143,18 +167,18 @@ try {
   assert.equal(await cards.count(), 8);
   await button("Next").press("Enter");
   await field("Search products").fill("pencil");
-  await button("School Supplies").press("Enter");
+  await filters.getByRole("button", { name: "School Supplies", exact: true }).press("Enter");
   await see("1 product");
   assert.deepEqual(await cards.locator("h3").allTextContents(), ["Colored Pencil Set"]);
-  await button("Office Supplies").press("Enter");
+  await filters.getByRole("button", { name: "Office Supplies", exact: true }).press("Enter");
   await see("No products match your search.");
   await button("Clear filters").press("Enter");
   await see("Page 1 of 2");
   await field("Search products").fill("supplies");
   await see("No products match your search.");
-  await button("Clear filters").press("Enter");
   for (const category of categories) {
-    await button(category).press("Enter");
+    await quickCategories.getByRole("button", { name: category, exact: true }).press("Enter");
+    assert.equal(await filters.getByRole("button", { name: category, exact: true }).getAttribute("aria-pressed"), "true");
     await see("2 products");
     assert.deepEqual(await cards.locator(".product-category").allTextContents(), [category, category]);
     for (const src of await cards.locator("img").evaluateAll((images) => images.map((image) => image.src))) {
