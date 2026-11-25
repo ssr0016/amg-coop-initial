@@ -5,20 +5,20 @@ const number = new Intl.NumberFormat("en-PH");
 const percent = new Intl.NumberFormat("en-PH", { style: "percent", maximumFractionDigits: 1 });
 const orderGroups = ["pending", "paid", "completed", "cancelled"] as const;
 
-export function Analytics({ orders, products }: Pick<Store, "orders" | "products">) {
+export function Analytics({ orders, salesOrders, products }: Pick<Store, "orders" | "products"> & { salesOrders: Store["orders"] }) {
   const catalog = new Map(products.map(({ id, category }) => [id, category]));
   const categorySales = new Map<string, number>(productCategories.map((category) => [category, 0]));
   const productSales = new Map<string, { name: string; quantity: number }>();
   const counts = { pending: 0, paid: 0, completed: 0, cancelled: 0 };
   let uncategorized = 0;
 
-  for (const order of orders) {
-    const status = order.status;
+  for (const { status } of orders) {
     const group = status === "pending_payment" || status === "confirmed" ? "pending" : status;
     counts[group]++;
-    if (status !== "paid" && status !== "completed") continue;
+  }
 
-    for (const { productId, name, quantity, category } of order.items) {
+  for (const { items } of salesOrders) {
+    for (const { productId, name, quantity, category } of items) {
       const sold = productSales.get(productId);
       if (sold) sold.quantity += quantity;
       else productSales.set(productId, { name, quantity });
@@ -67,7 +67,7 @@ export function Analytics({ orders, products }: Pick<Store, "orders" | "products
           </li>)}
         </ol>
       </section>
-    </div> : <Empty>No sales data to display yet</Empty>}
+    </div> : <Empty>No paid or completed sales in this period.</Empty>}
     {orders.length > 0 && <section className="panel" aria-labelledby="order-breakdown-heading">
       <h3 id="order-breakdown-heading">Order Status Breakdown</h3>
       <div className="order-breakdown-bar" aria-hidden="true">

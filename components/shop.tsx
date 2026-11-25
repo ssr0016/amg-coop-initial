@@ -26,7 +26,10 @@ function Photo({ product, sizes }: { product: Product; sizes: string }) {
   const image = product.image_url ?? product.image;
   return <div className="product-photo">
     {image ? <Image src={image} alt="" fill sizes={sizes} unoptimized /> : <Package size={50} aria-hidden />}
-    {product.stock === 0 && <span className="out">Out of Stock</span>}
+    {product.stock < 5 && <div className="stock-badges">
+      <span>Low Stock</span>
+      {product.stock === 0 && <span>Out of Stock</span>}
+    </div>}
   </div>;
 }
 
@@ -189,7 +192,7 @@ export function Catalog({ products, user }: { products: Product[]; user?: User }
         <span className="muted text-sm" aria-live="polite">{shown.length} {shown.length === 1 ? "product" : "products"}</span>
       </div>
       {shown.length ? <div className="product-grid">{shown.slice(start, start + pageSize).map((product) => <article className="product-card" key={product.id}>
-        <Link href={`/products/${product.id}`} aria-label={`View ${product.name}`}><Photo product={product} sizes="(max-width: 680px) 50vw, (max-width: 950px) 33vw, 25vw" /></Link>
+        <Link href={`/products/${product.id}`} aria-label={`View ${product.name}, ${product.stock} in stock`}><Photo product={product} sizes="(max-width: 680px) 50vw, (max-width: 950px) 33vw, 25vw" /></Link>
         <div className="product-copy">
           <p className="product-category">{product.category}</p>
           <h3><Link href={`/products/${product.id}`}>{product.name}</Link></h3>

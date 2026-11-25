@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { ClipboardList, LayoutDashboard, Package, Settings as SettingsIcon, Users, Plus } from "lucide-react";
+import { downloadCsv } from "../lib/csv";
 import { money, nextStatuses, productCategories, statuses, statusLabel, type Order, type OrderStatus, type Product, type Store } from "../lib/models";
 import { deleteProduct, reviewMember, saveInstructions, saveProduct, updateOrder } from "../lib/storage";
 import { Empty, Status, useAction } from "./shared";
@@ -18,9 +19,32 @@ const pages: Record<string, string> = {
   admin: "Dashboard", "admin/members": "Members", "admin/products": "Products",
   "admin/orders": "Orders", "admin/settings": "Settings",
 };
+const exportMessage = "Export successful! File downloaded.";
+const exportNoticeMs = 3000;
+
+type SalesPeriod = "all" | "month" | "week";
+const manilaOffsetMs = 8 * 60 * 60 * 1000;
+
+function ordersInPeriod(orders: Order[], period: SalesPeriod) {
+  if (period === "all") return orders;
+
+  const now = Date.now();
+  // Use UTC setters on Manila's local date so the browser's time zone cannot shift the boundary.
+  const start = new Date(now + manilaOffsetMs);
+  start.setUTCHours(0, 0, 0, 0);
+  const daysSinceMonday = (start.getUTCDay() + 6) % 7;
+  start.setUTCDate(period === "month" ? 1 : start.getUTCDate() - daysSinceMonday);
+  const from = start.getTime() - manilaOffsetMs;
+  return orders.filter(({ createdAt }) => {
+    const created = Date.parse(createdAt);
+    return created >= from && created <= now;
+  });
+}
 
 export function Admin({ path, store }: { path: string; store: Store }) {
-  const revenue = store.orders.filter((order) => order.status === "paid" || order.status === "completed")
+  const [period, setPeriod] = useState<SalesPeriod>("all");
+  const salesOrders = ordersInPeriod(store.orders, period).filter((order) => order.status === "paid" || order.status === "completed");
+  const revenue = salesOrders
     .reduce((sum, order) => sum + Math.round(order.total * 100), 0) / 100;
   const pending = store.users.filter((user) => user.role === "member" && user.status === "pending").length;
   return <section className="wrap admin-wrap">
@@ -32,13 +56,21 @@ export function Admin({ path, store }: { path: string; store: Store }) {
       <h1>{pages[path]}</h1>
       {path === "admin" && <>
         <p className="muted mt-2">Track cooperative orders, payments, and member approvals.</p>
+        <div className="field mt-4 max-w-xs">
+          <label htmlFor="sales-period">Sales period</label>
+          <select id="sales-period" value={period} onChange={(event) => setPeriod(event.target.value as SalesPeriod)}>
+            <option value="all">All Time</option>
+            <option value="month">This Month</option>
+            <option value="week">This Week</option>
+          </select>
+        </div>
         <div className="metrics">
           <div className="panel"><p>Total Revenue</p><strong>{money(revenue)}</strong></div>
           <div className="panel"><p>Pending Orders</p><strong>{store.orders.filter((order) => order.status === "pending_payment").length}</strong></div>
           <div className="panel"><p>Total Approved Members</p><strong>{store.users.filter((user) => user.role === "member" && user.status === "approved").length}</strong></div>
           <div className="panel"><p>Low Stock Alerts</p><strong>{store.products.filter((product) => product.stock < 5).length}</strong></div>
         </div>
-        <Analytics orders={store.orders} products={store.products} />
+        <Analytics orders={store.orders} salesOrders={salesOrders} products={store.products} />
         <div className="panel stack"><h2>Member approvals</h2><p className="muted">{pending ? `${pending} ${pending === 1 ? "application is" : "applications are"} waiting for review.` : "No pending members."}</p><div><Link href="/admin/members" className="text-link">Review members</Link></div></div>
       </>}
       {path === "admin/members" && <Members store={store} />}
@@ -53,6 +85,11 @@ function Members({ store }: { store: Store }) {
   const act = useAction();
   const members = store.users.filter((user) => user.role === "member");
   return <div className="stack mt-6">
+    <div><button type="button" className="button secondary" onClick={() => act(() => downloadCsv("members.csv",
+      ["Member ID", "Name", "Email", "Contact", "Status"],
+      members.map((user) => [user.memberId, user.name, user.email, user.contact, user.status])), exportMessage, exportNoticeMs)}>
+      Export Members (CSV)
+    </button></div>
     {!members.some((user) => user.status === "pending") && <p className="callout">No pending members.</p>}
     {[...members].sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending")).map((user) =>
       <article key={user.id} className="panel row">
@@ -142,7 +179,14 @@ function Products({ products }: { products: Product[] }) {
   const [editing, setEditing] = useState<Product>();
   const [confirm, setConfirm] = useState<string>();
   return <div className="stack mt-6">
-    {!editing && <div><button type="button" className="button" onClick={() => { setConfirm(undefined); setEditing(blank); }}><Plus size={17} aria-hidden /> Add product</button></div>}
+    <div className="row-actions">
+      {!editing && <button type="button" className="button" onClick={() => { setConfirm(undefined); setEditing(blank); }}><Plus size={17} aria-hidden /> Add product</button>}
+      <button type="button" className="button secondary" onClick={() => act(() => downloadCsv("inventory.csv",
+        ["Product Name", "Category", "Price", "Stock", "Unit"],
+        products.map((product) => [product.name, product.category, product.price, product.stock, product.unit])), exportMessage, exportNoticeMs)}>
+        Export Inventory (CSV)
+      </button>
+    </div>
     {editing && <ProductForm key={editing.id} product={editing} onClose={() => setEditing(undefined)} />}
     {products.length ? products.map((product) => <article className="panel row" key={product.id}>
       <div><h2>{product.name}</h2><p className="muted text-sm">{product.category} · {money(product.price)} / {product.unit} · {product.stock} in stock</p></div>
@@ -163,10 +207,17 @@ function Products({ products }: { products: Product[] }) {
 }
 
 function Orders({ store }: { store: Store }) {
+  const act = useAction();
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<string>();
   const shown = store.orders.filter((order) => !filter || order.status === filter);
   return <div className="stack mt-6">
+    <div><button type="button" className="button secondary" onClick={() => act(() => downloadCsv("orders.csv",
+      ["Order ID", "Date", "Member Name", "Total", "Status", "Payment Ref"],
+      store.orders.map((order) => [order.id, order.createdAt,
+        store.users.find((user) => user.id === order.userId)?.name, order.total, order.status, order.payment_reference])), exportMessage, exportNoticeMs)}>
+      Export Orders (CSV)
+    </button></div>
     <div className="field max-w-xs"><label htmlFor="status-filter">Filter by status</label><select id="status-filter" value={filter} onChange={(event) => { setFilter(event.target.value); setSelected(undefined); }}>
       <option value="">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{statusLabel[item]}</option>)}
     </select></div>

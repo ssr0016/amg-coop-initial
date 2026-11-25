@@ -191,5 +191,5 @@ export function saveInstructions(instructions: string) {
   const store = getStore();
   requireRole(store, "admin");
   if (!instructions.trim()) throw new Error("Enter payment instructions.");
-  setStore({ ...store, settings: { paymentInstructions: instructions.trim() } });
+  setStore({ ...store, settings: { ...store.settings, paymentInstructions: instructions } });
 }

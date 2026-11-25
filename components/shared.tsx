@@ -4,7 +4,7 @@ import { createContext, useContext, type ReactNode } from "react";
 import { PackageOpen } from "lucide-react";
 import { statusLabel, type OrderStatus } from "../lib/models";
 
-export const ActionContext = createContext<(action: () => void, message?: string) => boolean>(() => false);
+export const ActionContext = createContext<(action: () => void, message?: string, dismissAfterMs?: number) => boolean>(() => false);
 export const useAction = () => useContext(ActionContext);
 
 export function Status({ value }: { value: OrderStatus }) {

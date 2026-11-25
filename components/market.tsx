@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Leaf, ShoppingBag, ArrowUpRight } from "lucide-react";
+import { Leaf, ShoppingBag, ArrowUpRight, Check } from "lucide-react";
 import { currentUser, getStore, logout, seedStore, subscribe } from "../lib/storage";
 import { seed } from "../lib/seed";
 import { Admin } from "./admin";
@@ -23,7 +23,7 @@ export function Market({ path }: { path: string }) {
   const store = snapshot ?? seed;
   const user = snapshot ? currentUser(store) : undefined;
   const cartCount = Object.values(user ? store.carts[user.id] ?? {} : {}).reduce((sum, count) => sum + count, 0);
-  const [feedback, setFeedback] = useState<{ text: string; error: boolean }>();
+  const [feedback, setFeedback] = useState<{ text: string; error: boolean; dismissAfterMs?: number }>();
   const role = path.startsWith("admin") ? "admin" : ["cart", "checkout", "orders"].includes(path) ? "member" : null;
   const blocked = role && user?.role !== role;
 
@@ -32,10 +32,18 @@ export function Market({ path }: { path: string }) {
     if (snapshot && blocked) router.replace("/login");
   }, [snapshot, blocked, router]);
 
-  function act(action: () => void, message?: string) {
+  useEffect(() => {
+    if (feedback?.dismissAfterMs === undefined) return;
+    const timer = window.setTimeout(() => {
+      setFeedback((current) => current === feedback ? undefined : current);
+    }, feedback.dismissAfterMs);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+
+  function act(action: () => void, message?: string, dismissAfterMs?: number) {
     try {
       action();
-      setFeedback(message ? { text: message, error: false } : undefined);
+      setFeedback(message ? { text: message, error: false, dismissAfterMs } : undefined);
       return true;
     } catch (error) {
       setFeedback({ text: error instanceof Error ? error.message : "Please try again.", error: true });
@@ -72,8 +80,12 @@ export function Market({ path }: { path: string }) {
     </header>
     <main id="main">{body}</main>
     <div className="notifications" aria-live="polite" aria-atomic="true">
-      {feedback && <div className={`notice ${feedback.error ? "notice-error" : ""}`}>
-        <span>{feedback.text}</span><button type="button" aria-label="Dismiss message" onClick={() => setFeedback(undefined)}>×</button>
+      {feedback && <div className={`notice ${feedback.error ? "bg-[#8d3025]" : "bg-(--forest)"}`}>
+        <span className="flex items-center gap-2">
+          {!feedback.error && <Check className="size-4 shrink-0" aria-hidden />}
+          {feedback.text}
+        </span>
+        <button type="button" aria-label="Dismiss message" onClick={() => setFeedback(undefined)}>×</button>
       </div>}
     </div>
     <footer><div className="wrap footer-row"><Brand /><span>Philippine cooperative market · Demo storefront</span></div></footer>
