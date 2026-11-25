@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Leaf, ShoppingBag, ArrowUpRight, Check } from "lucide-react";
+import { ShoppingBag, ArrowUpRight, Check } from "lucide-react";
 import { currentUser, getStore, logout, seedStore, subscribe } from "../lib/storage";
 import { seed } from "../lib/seed";
 import { Admin } from "./admin";
@@ -14,7 +14,9 @@ import { ActionContext } from "./shared";
 const serverSnapshot = () => null;
 
 function Brand() {
-  return <Link href="/" className="brand"><span className="brand-mark"><Leaf size={21} aria-hidden /></span><span>AMG<span className="brand-secondary"> Co-op Market</span></span></Link>;
+  return <Link href="/" className="brand">
+    <span>AMG<span className="brand-secondary"> Co-op Market</span></span>
+  </Link>;
 }
 
 export function Market({ path }: { path: string }) {
@@ -62,7 +64,7 @@ export function Market({ path }: { path: string }) {
 
   return <ActionContext.Provider value={act}>
     <a className="skip" href="#main">Skip to content</a>
-    <header className="site-header">
+    <header className="site-header bg-white">
       <div className="demo-strip"><span aria-hidden />DEMO MODE — data saved in your browser only</div>
       <div className="wrap nav-row">
         <Brand />
@@ -88,6 +90,11 @@ export function Market({ path }: { path: string }) {
         <button type="button" aria-label="Dismiss message" onClick={() => setFeedback(undefined)}>×</button>
       </div>}
     </div>
-    <footer><div className="wrap footer-row"><Brand /><span>Philippine cooperative market · Demo storefront</span></div></footer>
+    <footer>
+      <div className="wrap footer-row">
+        <span>© 2026 AMG Co-op Market. All rights reserved.</span>
+        <span>Philippine Cooperative Market · Demo Storefront</span>
+      </div>
+    </footer>
   </ActionContext.Provider>;
 }
