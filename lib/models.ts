@@ -3,9 +3,13 @@ export type User = {
   role: "admin" | "member"; status: "pending" | "approved" | "rejected";
 };
 
+export const productCategories = [
+  "Food Products", "Household Products", "School Supplies", "Office Supplies", "Essentials", "Souvenirs",
+] as const;
+
 export type Product = {
   id: string; name: string; description: string; price: number; stock: number;
-  category: string; image: string; unit: string;
+  category: string; image: string; image_url?: string; unit: string;
 };
 
 export const statuses = ["pending_payment", "confirmed", "paid", "completed", "cancelled"] as const;
@@ -30,6 +34,7 @@ export type Order = {
 export type Settings = { paymentInstructions: string };
 export type Cart = Record<string, number>;
 export type Store = {
+  catalogVersion?: 2;
   users: User[]; products: Product[]; orders: Order[]; carts: Record<string, Cart>;
   session: string | null; settings: Settings;
 };

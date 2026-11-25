@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { ClipboardList, LayoutDashboard, Package, Settings as SettingsIcon, Users, Plus } from "lucide-react";
-import { money, nextStatuses, statuses, statusLabel, type Order, type OrderStatus, type Product, type Store } from "../lib/models";
+import { money, nextStatuses, productCategories, statuses, statusLabel, type Order, type OrderStatus, type Product, type Store } from "../lib/models";
 import { deleteProduct, reviewMember, saveInstructions, saveProduct, updateOrder } from "../lib/storage";
 import { Empty, Status, useAction } from "./shared";
 import { orderCode, orderDate, OrderLines } from "./shop";
@@ -65,36 +65,82 @@ function Members({ store }: { store: Store }) {
   </div>;
 }
 
-const blank: Product = { id: "", name: "", category: "", description: "", stock: 0, price: 0, image: "", unit: "" };
+const blank: Product = { id: "", name: "", category: productCategories[0], description: "", stock: 0, price: 0, image: "", unit: "" };
+
+function ProductForm({ product, onClose }: { product: Product; onClose: () => void }) {
+  const act = useAction();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [imageUrl, setImageUrl] = useState(product.image_url);
+  const [readingPhoto, setReadingPhoto] = useState(false);
+  const preview = imageUrl ?? product.image;
+
+  function readPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      window.alert("This image is too large. Choose a file that is 2 MB or smaller.");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      window.alert("Choose an image file.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setReadingPhoto(false);
+      if (typeof reader.result === "string") setImageUrl(reader.result);
+      else window.alert("This image could not be read. Choose another file.");
+    };
+    setReadingPhoto(true);
+    reader.readAsDataURL(file);
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (readingPhoto) return;
+    const form = new FormData(event.currentTarget);
+    const read = (key: string) => String(form.get(key) ?? "").trim();
+    const updated = { ...product, name: read("name"), description: read("description"), category: read("category"),
+      unit: read("unit"), price: Number(read("price")), stock: Number(read("stock")), image_url: imageUrl };
+    if (act(() => saveProduct(updated), "Product saved.")) onClose();
+  }
+
+  return <form className="panel stack" onSubmit={submit}>
+    <h2>{product.id ? "Edit product" : "Add product"}</h2>
+    <div className="field-grid">
+      <label>Product name<input name="name" defaultValue={product.name} required maxLength={100} /></label>
+      <label>Category<select name="category" defaultValue={product.category} required>
+        {productCategories.map((category) => <option key={category}>{category}</option>)}
+      </select></label>
+      <label>Price (PHP)<input name="price" type="number" min="0.01" max="1000000" step="0.01" defaultValue={product.price || ""} required /></label>
+      <label>Stock<input name="stock" type="number" min="0" max="1000000" step="1" defaultValue={product.stock} required /></label>
+      <label>Unit<input name="unit" placeholder="e.g. 250 g" defaultValue={product.unit} required maxLength={35} /></label>
+    </div>
+    <div className="field"><label htmlFor="product-description">Description</label><textarea id="product-description" name="description" rows={3} defaultValue={product.description} required maxLength={500} /></div>
+    <div className="field">
+      <p id="photo-hint" className="muted text-sm">Images up to 2 MB.</p>
+      <input ref={fileInput} type="file" accept="image/*" hidden onChange={readPhoto} />
+      <div><button type="button" className="button secondary" aria-describedby="photo-hint" disabled={readingPhoto}
+        onClick={() => fileInput.current?.click()}>Choose Image</button></div>
+      {readingPhoto && <p className="muted text-sm" role="status">Reading image…</p>}
+      {preview && <img className="product-photo-preview" src={preview} alt="Product photo preview" />}
+    </div>
+    <div className="row-actions">
+      <button className="button" disabled={readingPhoto}>Save product</button>
+      <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+    </div>
+  </form>;
+}
 
 function Products({ products }: { products: Product[] }) {
   const act = useAction();
   const [editing, setEditing] = useState<Product>();
   const [confirm, setConfirm] = useState<string>();
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editing) return;
-    const form = new FormData(event.currentTarget);
-    const read = (key: string) => String(form.get(key) ?? "").trim();
-    const product = { ...editing, name: read("name"), description: read("description"), category: read("category"),
-      unit: read("unit"), price: Number(read("price")), stock: Number(read("stock")) };
-    if (act(() => saveProduct(product), "Product saved.")) setEditing(undefined);
-  }
   return <div className="stack mt-6">
     {!editing && <div><button type="button" className="button" onClick={() => { setConfirm(undefined); setEditing(blank); }}><Plus size={17} aria-hidden /> Add product</button></div>}
-    {editing && <form className="panel stack" key={editing.id} onSubmit={submit}>
-      <h2>{editing.id ? "Edit product" : "Add product"}</h2>
-      <div className="field-grid">
-        <label>Product name<input name="name" defaultValue={editing.name} required maxLength={100} /></label>
-        <label>Category<input name="category" list="product-categories" defaultValue={editing.category} required maxLength={50} /></label>
-        <datalist id="product-categories">{[...new Set(products.map((item) => item.category))].map((category) => <option key={category} value={category} />)}</datalist>
-        <label>Price (PHP)<input name="price" type="number" min="0.01" max="1000000" step="0.01" defaultValue={editing.price || ""} required /></label>
-        <label>Stock<input name="stock" type="number" min="0" max="1000000" step="1" defaultValue={editing.stock} required /></label>
-        <label>Unit<input name="unit" placeholder="e.g. 250 g" defaultValue={editing.unit} required maxLength={35} /></label>
-      </div>
-      <div className="field"><label htmlFor="product-description">Description</label><textarea id="product-description" name="description" rows={3} defaultValue={editing.description} required maxLength={500} /></div>
-      <div className="row-actions"><button className="button">Save product</button><button type="button" className="button secondary" onClick={() => setEditing(undefined)}>Cancel</button></div>
-    </form>}
+    {editing && <ProductForm key={editing.id} product={editing} onClose={() => setEditing(undefined)} />}
     {products.length ? products.map((product) => <article className="panel row" key={product.id}>
       <div><h2>{product.name}</h2><p className="muted text-sm">{product.category} · {money(product.price)} / {product.unit} · {product.stock} in stock</p></div>
       <div className="row-actions">{confirm === product.id ? <>

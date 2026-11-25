@@ -3,19 +3,17 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowDown, ArrowRight, ArrowLeft, Search, ShoppingBag, Truck, Sprout, Package, Coffee, Cookie, LayoutGrid, Plus } from "lucide-react";
-import { money, nextStatuses, orderTotal, type Order, type Product, type Store, type User } from "../lib/models";
+import { ArrowDown, ArrowRight, ArrowLeft, Search, ShoppingBag, Truck, Sprout, Package, Plus } from "lucide-react";
+import { money, nextStatuses, orderTotal, productCategories, type Order, type Product, type Store, type User } from "../lib/models";
 import { cancelOrder, checkout, setQuantity } from "../lib/storage";
 import { Empty, Status, useAction } from "./shared";
 
-const categories = [
-  ["All products", LayoutGrid], ["Fresh produce", Sprout], ["Pantry", Package],
-  ["Beverages", Coffee], ["Snacks", Cookie],
-] as const;
+const categories = ["All", ...productCategories];
 
 function Photo({ product, sizes }: { product: Product; sizes: string }) {
+  const image = product.image_url ?? product.image;
   return <div className="product-photo">
-    {product.image ? <Image src={product.image} alt="" fill sizes={sizes} unoptimized /> : <Package size={50} aria-hidden />}
+    {image ? <Image src={image} alt="" fill sizes={sizes} unoptimized /> : <Package size={50} aria-hidden />}
     {product.stock === 0 && <span className="out">Out of stock</span>}
   </div>;
 }
@@ -32,34 +30,33 @@ function Add({ product, user, compact = false }: { product: Product; user?: User
 }
 
 export function Catalog({ products, user }: { products: Product[]; user?: User }) {
-  const [category, setCategory] = useState("All products");
+  const [category, setCategory] = useState("All");
   const [search, setSearch] = useState("");
   const term = search.toLowerCase().trim();
-  const shown = products.filter((product) => (category === "All products" || product.category === category) &&
+  const shown = products.filter((product) => (category === "All" || product.category === category) &&
     `${product.name} ${product.category}`.toLowerCase().includes(term));
-  const extra = [...new Set(products.map((product) => product.category))].filter((name) => !categories.some(([item]) => item === name));
   return <div className="wrap">
     <section className="hero">
       <div className="hero-content">
         <p className="eyebrow"><Sprout size={18} aria-hidden /> THE COOPERATIVE MARKET</p>
         <h1>Good food.<br />Grown together.</h1>
-        <p>Philippine produce and pantry staples for your everyday table.</p>
+        <p>Shop food, everyday essentials, and gifts from your cooperative.</p>
         <a href="#catalog" className="button hero-button">Browse products <ArrowDown size={17} aria-hidden /></a>
       </div>
       <div className="hero-photo"><Image src="/images/market.webp" alt="A woven basket filled with fresh vegetables" fill preload sizes="(max-width: 680px) 100vw, 58vw" unoptimized /></div>
     </section>
     <section id="catalog" className="catalog">
       <div className="catalog-head">
-        <div><h2>Shop the market</h2><p className="muted">Find fresh produce and Filipino pantry favorites.</p></div>
+        <h2>Shop the market</h2>
         <label className="search"><Search size={19} aria-hidden />
           <input aria-label="Search products" type="search" placeholder="Search products…" value={search} onChange={(event) => setSearch(event.target.value)} />
         </label>
       </div>
       <div className="catalog-controls">
-        <div className="categories" aria-label="Product categories">
-          {[...categories, ...extra.map((name) => [name, Package] as const)].map(([name, Icon]) =>
+        <div className="categories" role="group" aria-label="Product categories">
+          {categories.map((name) =>
             <button key={name} type="button" aria-pressed={category === name} onClick={() => setCategory(name)}>
-              <Icon size={16} aria-hidden />{name}
+              {name}
             </button>)}
         </div>
         <span className="muted text-sm" aria-live="polite">{shown.length} {shown.length === 1 ? "product" : "products"}</span>
@@ -71,7 +68,7 @@ export function Catalog({ products, user }: { products: Product[]; user?: User }
           <h3><Link href={`/products/${product.id}`}>{product.name}</Link></h3>
           <div className="product-price"><p><strong>{money(product.price)}</strong> <span>/ {product.unit}</span></p><Add product={product} user={user} compact /></div>
         </div>
-      </article>)}</div> : <Empty action={<button className="button secondary" type="button" onClick={() => { setSearch(""); setCategory("All products"); }}>Clear filters</button>}>No products match your search.</Empty>}
+      </article>)}</div> : <Empty action={<button className="button secondary" type="button" onClick={() => { setSearch(""); setCategory("All"); }}>Clear filters</button>}>No products match your search.</Empty>}
     </section>
   </div>;
 }

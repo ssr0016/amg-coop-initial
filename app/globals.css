@@ -57,19 +57,19 @@ h2 { font-size: clamp(1.45rem, 2.4vw, 2.15rem); letter-spacing: -.035em; }
 .catalog { padding-bottom: 66px; }
 .catalog-head { display: flex; justify-content: space-between; align-items: end; flex-wrap: wrap; gap: 1rem; }
 .catalog h2 { font-size: clamp(2rem, 4.1vw, 3.3rem); }
-.catalog h2 + p { margin-top: .45rem; }
 .search { position: relative; display: block; width: min(100%, 305px); color: var(--muted); }
 .search svg { position: absolute; left: .9rem; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .search input { padding-left: 2.6rem; }
 .catalog-controls { margin: 1.3rem 0 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; }
 .categories { display: flex; flex-wrap: wrap; gap: .45rem; }
-.categories button { display: flex; align-items: center; gap: .38rem; min-height: 44px; padding: .5rem .8rem; border: 1px solid var(--border); border-radius: 100px; background: var(--white); color: var(--green); font-size: .82rem; }
+.categories button { min-height: 44px; padding: .5rem .8rem; border: 1px solid var(--border); border-radius: 100px; background: var(--white); color: var(--green); font-size: .82rem; }
 .categories button[aria-pressed="true"] { background: var(--green); color: white; border-color: var(--green); }
 .categories button[aria-pressed="false"]:hover { background: #ecf0dd; }
 .product-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.1rem; }
 .product-card { border: 1px solid var(--border); border-radius: 10px; background: var(--white); overflow: hidden; display: flex; flex-direction: column; }
 .product-card > a:focus-visible { outline-offset: -4px; z-index: 1; }
 .product-photo { position: relative; display: grid; place-items: center; aspect-ratio: 1.4; background: #eee7da; color: var(--green); overflow: hidden; }
+.product-photo-preview { width: min(100%, 240px); max-height: 180px; object-fit: contain; object-position: left center; }
 .out { position: absolute; top: .65rem; left: .65rem; padding: .25rem .55rem; border-radius: 4px; font-size: .75rem; font-weight: 700; color: #633e1c; background: #fff3d8; }
 .product-copy { padding: .8rem .9rem .9rem; flex: 1; display: flex; flex-direction: column; }
 .product-category { color: #496746; font-size: .69rem; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; }

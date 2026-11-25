@@ -1,4 +1,4 @@
-import { nextStatuses, orderTotal, type Order, type OrderStatus, type Product, type Store, type User } from "./models";
+import { nextStatuses, orderTotal, productCategories, type Order, type OrderStatus, type Product, type Store, type User } from "./models";
 import { seed } from "./seed";
 
 const key = "ani-coop-market.v1";
@@ -22,7 +22,25 @@ function setStore(store: Store) {
 }
 
 export function seedStore() {
-  if (localStorage.getItem(key) === null) setStore(seed);
+  if (localStorage.getItem(key) === null) {
+    setStore(seed);
+    return;
+  }
+
+  const store = getStore();
+  if (store.catalogVersion === seed.catalogVersion) return;
+
+  const legacyFoodCategories = ["Fresh produce", "Pantry", "Beverages", "Snacks"];
+  const products = store.products.map((product) => {
+    const category = productCategories.find((name) => name === product.category)
+      ?? (legacyFoodCategories.includes(product.category) ? "Food Products" : "Essentials");
+    const sample = seed.products.find((item) => item.id === product.id);
+    const image = sample && product.image === `/images/${product.id}.webp` ? sample.image : product.image;
+    return { ...product, category, image };
+  });
+  const existing = new Set(products.map((product) => product.id));
+  const samples = seed.products.filter((product) => product.category !== "Food Products" && !existing.has(product.id));
+  setStore({ ...store, catalogVersion: seed.catalogVersion, products: [...products, ...samples] });
 }
 
 export function subscribe(callback: () => void) {
@@ -86,7 +104,10 @@ export function reviewMember(id: string, status: "approved" | "rejected") {
 export function saveProduct(product: Product) {
   const store = getStore();
   requireRole(store, "admin");
-  if (![product.name, product.description, product.category, product.unit].every((value) => value.trim())
+  if (!productCategories.some((category) => category === product.category)) {
+    throw new Error("Select a product category.");
+  }
+  if (![product.name, product.description, product.unit].every((value) => value.trim())
       || !Number.isSafeInteger(product.stock) || product.stock < 0
       || !Number.isSafeInteger(Math.round(product.price * 100)) || product.price <= 0) {
     throw new Error("Enter product details, a positive price, and a whole stock quantity.");

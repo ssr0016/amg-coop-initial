@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 const browser = await chromium.launch();
@@ -6,6 +7,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  const categories = ["Food Products", "Household Products", "School Supplies", "Office Supplies", "Essentials", "Souvenirs"];
   const base = process.env.DEMO_URL ?? "http://localhost:3000";
   const go = (path) => page.goto(base + path);
   const button = (name) => page.getByRole("button", { name, exact: true });
@@ -47,20 +49,68 @@ try {
   await see("No pending members.");
   await link("Products").press("Enter");
   await button("Add product").press("Enter");
+  const categorySelect = page.getByRole("combobox", { name: "Category", exact: true });
+  await categorySelect.waitFor();
+  assert.deepEqual(await categorySelect.locator("option").allTextContents(), categories);
+  await categorySelect.selectOption("Food Products");
   for (const [name, value] of Object.entries({
-    "Product name": "Demo Mango", Category: "Fresh produce", "Price (PHP)": "75",
+    "Product name": "Demo Mango", "Price (PHP)": "75",
     Stock: "2", Unit: "1 kg", Description: "A product created during the demo.",
   })) await field(name).fill(value);
+  const preview = page.getByRole("img", { name: "Product photo preview" });
+  const chooseImage = async (file) => {
+    const chooser = page.waitForEvent("filechooser", { timeout: 5000 });
+    await Promise.all([chooser, button("Choose Image").press("Enter", { timeout: 5000 })]);
+    await (await chooser).setFiles(file);
+  };
+  const fixtureImage = (name) => fileURLToPath(new URL(`../public/images/${name}.webp`, import.meta.url));
+  assert.equal(await preview.count(), 0);
+  await chooseImage(fixtureImage("banana"));
+  await preview.waitFor();
+  const originalPhoto = await preview.getAttribute("src");
+  assert.match(originalPhoto, /^data:image\/webp;base64,/);
   await button("Save product").press("Enter");
   await see("Product saved.");
+  const savedPhoto = () => page.evaluate(() =>
+    JSON.parse(localStorage.getItem("ani-coop-market.v1")).products.find((product) => product.name === "Demo Mango").image_url);
+  assert.equal(await savedPhoto(), originalPhoto);
+
   const mango = page.getByRole("article").filter({ hasText: "Demo Mango" });
   await mango.getByRole("button", { name: "Edit", exact: true }).press("Enter");
+  assert.equal(await preview.getAttribute("src"), originalPhoto);
+  const sizeAlert = page.waitForEvent("dialog").then(async (dialog) => {
+    const message = dialog.message();
+    await dialog.accept();
+    assert.equal(dialog.type(), "alert");
+    assert.match(message, /too large.*2 MB/i);
+  });
+  await Promise.all([sizeAlert, chooseImage({
+    name: "oversized.png", mimeType: "image/png", buffer: Buffer.alloc(2 * 1024 * 1024 + 1),
+  })]);
+  assert.equal(await preview.getAttribute("src"), originalPhoto);
+  await chooseImage(fixtureImage("honey"));
+  await page.waitForFunction((previous) =>
+    document.querySelector('img[alt="Product photo preview"]')?.getAttribute("src") !== previous, originalPhoto);
+  const replacementPhoto = await preview.getAttribute("src");
+  assert.match(replacementPhoto, /^data:image\/webp;base64,/);
   await field("Stock").fill("0");
   await button("Save product").press("Enter");
   await mango.getByText(/0 in stock/).waitFor();
+  assert.equal(await savedPhoto(), replacementPhoto);
   await link("Shop").press("Enter");
-  await button("Fresh produce").press("Enter");
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.reload();
+  await button("Food Products").press("Enter");
   await mango.getByText("Out of stock", { exact: true }).waitFor();
+  const verifyPhoto = async (photo) => {
+    assert.equal(await photo.getAttribute("src"), replacementPhoto);
+    await photo.evaluate((image) => image.decode());
+  };
+  await verifyPhoto(mango.locator("img"));
+  await link("Demo Mango").press("Enter");
+  await see("Out of stock");
+  await verifyPhoto(page.locator(".detail-grid img"));
+  assert.equal(await button("Add to cart").count(), 0);
   await link("Admin").press("Enter");
   await link("Products").press("Enter");
   await mango.getByRole("button", { name: "Delete", exact: true }).press("Enter");
@@ -75,10 +125,22 @@ try {
   await link("Sign in").press("Enter");
   await login("shopper@coop.test", "shopper123");
   await page.getByRole("heading", { name: /Good food.\s*Grown together./ }).waitFor();
-  await link("Virgin Coconut Oil").press("Enter");
-  await see("Out of stock");
-  assert.equal(await button("Add to cart").count(), 0);
-  await link("Shop").press("Enter");
+  const cards = page.locator(".product-card");
+  const filters = page.getByRole("group", { name: "Product categories" });
+  assert.deepEqual(await filters.getByRole("button").allTextContents(), ["All", ...categories]);
+  assert.equal(await cards.count(), 12);
+  for (const category of categories) {
+    await button(category).press("Enter");
+    await see("2 products");
+    assert.deepEqual(await cards.locator(".product-category").allTextContents(), [category, category]);
+    for (const src of await cards.locator("img").evaluateAll((images) => images.map((image) => image.src))) {
+      assert.equal(new URL(src).hostname, "images.unsplash.com");
+    }
+    assert.equal(await cards.locator("img").count(), 2);
+  }
+  await button("All").press("Enter");
+  await see("12 products");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await field("Search products").fill("rice");
   await link("Sinandomeng Rice").press("Enter");
   await heading("Sinandomeng Rice");
@@ -183,8 +245,32 @@ try {
   await field("Filter by status").selectOption("cancelled");
   await order(0).getByText("Cancelled", { exact: true }).waitFor();
   await order(1).getByText("Cancelled", { exact: true }).waitFor();
+  const legacy = await page.evaluate(() => {
+    const key = "ani-coop-market.v1";
+    const store = JSON.parse(localStorage.getItem(key));
+    const rice = store.products.find((product) => product.id === "rice");
+    const coffee = store.products.find((product) => product.id === "coffee");
+    delete store.catalogVersion;
+    store.products = [
+      { ...rice, category: "Pantry", image: "/images/rice.webp" },
+      { ...coffee, category: "Beverages", image: "/images/coffee.webp" },
+    ];
+    store.carts.member = { rice: 1 };
+    localStorage.setItem(key, JSON.stringify(store));
+    return { stock: rice.stock, carts: store.carts, orders: store.orders, session: store.session };
+  });
+  await page.reload();
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("ani-coop-market.v1")).catalogVersion === 2);
+  const migrated = await page.evaluate(() => JSON.parse(localStorage.getItem("ani-coop-market.v1")));
+  assert.deepEqual({
+    stock: migrated.products.find((product) => product.id === "rice").stock,
+    carts: migrated.carts, orders: migrated.orders, session: migrated.session,
+  }, legacy);
+  assert.deepEqual(categories.map((category) => migrated.products.filter((product) => product.category === category).length),
+    [2, 2, 2, 2, 2, 2]);
+
   assert.deepEqual(errors, []);
-  console.log("Passed: approval and rejection, route protection, product CRUD and filters, stock limits, settings, cart persistence, COD checkout, order updates, revenue, isolated member history, and member order cancellation.");
+  console.log("Passed: account approvals, route protection, product CRUD and photo uploads, category filters and migration, stock limits, settings, cart persistence, COD checkout, admin order updates, revenue, isolated member history, and member order cancellation.");
 } finally {
   await browser.close();
 }
