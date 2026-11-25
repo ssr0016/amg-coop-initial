@@ -14,6 +14,8 @@ try {
   const link = (name) => page.getByRole("link", { name, exact: true });
   const field = (name) => page.getByLabel(name, { exact: true });
   const see = (value) => page.getByText(value, { exact: true }).filter({ visible: true }).first().waitFor();
+  const seeMetric = (label, value) => page.locator(".metrics .panel").filter({ hasText: label })
+    .getByText(value, { exact: true }).waitFor();
   const heading = (name) => page.getByRole("heading", { name, exact: true }).waitFor();
   const login = async (email, password) => {
     await heading("Sign in");
@@ -101,17 +103,19 @@ try {
   await page.waitForURL((url) => url.pathname === "/");
   await page.reload();
   await button("Food Products").press("Enter");
-  await mango.getByText("Out of stock", { exact: true }).waitFor();
+  await mango.getByText("Out of Stock", { exact: true }).waitFor();
+  assert.equal(await mango.getByRole("button", { name: "Add Demo Mango to cart" }).isDisabled(), true);
   const verifyPhoto = async (photo) => {
     assert.equal(await photo.getAttribute("src"), replacementPhoto);
     await photo.evaluate((image) => image.decode());
   };
   await verifyPhoto(mango.locator("img"));
   await link("Demo Mango").press("Enter");
-  await see("Out of stock");
+  await see("Out of Stock");
   await verifyPhoto(page.locator(".detail-grid img"));
-  assert.equal(await button("Add to cart").count(), 0);
+  assert.equal(await button("Add to cart").isDisabled(), true);
   await link("Admin").press("Enter");
+  await seeMetric("Low Stock Alerts", "1");
   await link("Products").press("Enter");
   await mango.getByRole("button", { name: "Delete", exact: true }).press("Enter");
   await button("Confirm delete").press("Enter");
@@ -128,7 +132,27 @@ try {
   const cards = page.locator(".product-card");
   const filters = page.getByRole("group", { name: "Product categories" });
   assert.deepEqual(await filters.getByRole("button").allTextContents(), ["All", ...categories]);
-  assert.equal(await cards.count(), 12);
+  assert.equal(await cards.count(), 8);
+  assert.equal(await button("Prev").isDisabled(), true);
+  await button("Next").press("Enter");
+  await see("Page 2 of 2");
+  assert.equal(await cards.count(), 4);
+  assert.equal(await button("Next").isDisabled(), true);
+  await button("Prev").press("Enter");
+  await see("Page 1 of 2");
+  assert.equal(await cards.count(), 8);
+  await button("Next").press("Enter");
+  await field("Search products").fill("pencil");
+  await button("School Supplies").press("Enter");
+  await see("1 product");
+  assert.deepEqual(await cards.locator("h3").allTextContents(), ["Colored Pencil Set"]);
+  await button("Office Supplies").press("Enter");
+  await see("No products match your search.");
+  await button("Clear filters").press("Enter");
+  await see("Page 1 of 2");
+  await field("Search products").fill("supplies");
+  await see("No products match your search.");
+  await button("Clear filters").press("Enter");
   for (const category of categories) {
     await button(category).press("Enter");
     await see("2 products");
@@ -183,12 +207,20 @@ try {
   await field("Filter by status").selectOption("completed");
   await see("Completed");
   await link("Overview").press("Enter");
-  await see("₱330.00");
+  await seeMetric("Total Revenue", "₱330.00");
+  await seeMetric("Pending Orders", "0");
+  await seeMetric("Total Approved Members", "2");
+  await seeMetric("Low Stock Alerts", "0");
   await button("Sign out").press("Enter");
   await link("Sign in").press("Enter");
   await login("shopper@coop.test", "shopper123");
   await link("My orders").press("Enter");
   await see("Completed");
+  await page.getByText("View order details", { exact: true }).press("Enter");
+  await see("Sinandomeng Rice × 2");
+  await see("Order total");
+  await see("₱330.00");
+  await see("Pay the cooperative cashier on delivery.");
   await see("Payment reference: COD-123");
   await button("Sign out").press("Enter");
   await link("Sign in").press("Enter");

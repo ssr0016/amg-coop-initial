@@ -48,7 +48,7 @@ export function Market({ path }: { path: string }) {
   else if (path.startsWith("admin")) body = <Admin path={path} store={store} />;
   else if (path === "login" || path === "register") body = <Account registerMode={path === "register"} ready={snapshot !== null} />;
   else if (path === "cart" || path === "checkout") body = <Basket store={store} user={user!} checkoutMode={path === "checkout"} />;
-  else if (path === "orders") body = <History orders={store.orders.filter((order) => order.userId === user!.id)} />;
+  else if (path === "orders") body = <History orders={store.orders.filter((order) => order.userId === user!.id)} instructions={store.settings.paymentInstructions} />;
   else if (path.startsWith("products/")) body = !snapshot ? <div className="wrap py-20" role="status">Loading product…</div> : <ProductDetail product={store.products.find((product) => product.id === path.split("/")[1])} user={user} />;
   else body = <Catalog products={store.products} user={user} />;
 

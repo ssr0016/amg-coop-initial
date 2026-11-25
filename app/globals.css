@@ -50,14 +50,15 @@ h2 { font-size: clamp(1.45rem, 2.4vw, 2.15rem); letter-spacing: -.035em; }
 .button { display: inline-flex; justify-content: center; align-items: center; gap: .6rem; padding: .64rem 1rem; min-height: 44px; border: 1px solid transparent; border-radius: 7px; font-weight: 700; font-size: .9rem; background: var(--green); color: white; text-align: center; }
 .button:not(:disabled):hover { background: #326342; }
 .button.secondary { color: var(--green); border-color: #bac8b8; background: var(--white); }
-.button.secondary:hover { background: #eef1e2; }
+.button.secondary:not(:disabled):hover { background: #eef1e2; }
 .button.danger { background: #8d3025; }
 .hero .hero-button { margin-top: 1.55rem; background: var(--lime); color: var(--forest); }
 .hero .hero-button:hover { background: #f1f6bd; }
 .catalog { padding-bottom: 66px; }
 .catalog-head { display: flex; justify-content: space-between; align-items: end; flex-wrap: wrap; gap: 1rem; }
 .catalog h2 { font-size: clamp(2rem, 4.1vw, 3.3rem); }
-.search { position: relative; display: block; width: min(100%, 305px); color: var(--muted); }
+.search { width: min(100%, 305px); color: var(--muted); }
+.search-field { position: relative; }
 .search svg { position: absolute; left: .9rem; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .search input { padding-left: 2.6rem; }
 .catalog-controls { margin: 1.3rem 0 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; }
@@ -66,11 +67,12 @@ h2 { font-size: clamp(1.45rem, 2.4vw, 2.15rem); letter-spacing: -.035em; }
 .categories button[aria-pressed="true"] { background: var(--green); color: white; border-color: var(--green); }
 .categories button[aria-pressed="false"]:hover { background: #ecf0dd; }
 .product-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.1rem; }
+.pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .8rem; margin-top: 1.25rem; }
 .product-card { border: 1px solid var(--border); border-radius: 10px; background: var(--white); overflow: hidden; display: flex; flex-direction: column; }
 .product-card > a:focus-visible { outline-offset: -4px; z-index: 1; }
 .product-photo { position: relative; display: grid; place-items: center; aspect-ratio: 1.4; background: #eee7da; color: var(--green); overflow: hidden; }
 .product-photo-preview { width: min(100%, 240px); max-height: 180px; object-fit: contain; object-position: left center; }
-.out { position: absolute; top: .65rem; left: .65rem; padding: .25rem .55rem; border-radius: 4px; font-size: .75rem; font-weight: 700; color: #633e1c; background: #fff3d8; }
+.out { position: absolute; top: .65rem; left: .65rem; padding: .25rem .55rem; border-radius: 4px; font-size: .75rem; font-weight: 700; color: white; background: #8d3025; }
 .product-copy { padding: .8rem .9rem .9rem; flex: 1; display: flex; flex-direction: column; }
 .product-category { color: #496746; font-size: .69rem; font-weight: 700; text-transform: uppercase; letter-spacing: .09em; }
 .product-copy h3 { font-size: 1.03rem; line-height: 1.24; font-weight: 700; margin-top: .28rem; margin-bottom: .65rem; overflow-wrap: anywhere; }
@@ -78,7 +80,7 @@ h2 { font-size: clamp(1.45rem, 2.4vw, 2.15rem); letter-spacing: -.035em; }
 .product-price { display: flex; justify-content: space-between; align-items: center; gap: .3rem; margin-top: auto; min-height: 44px; }
 .product-price span, .detail-price span { color: var(--muted); font-weight: 400; font-size: .82rem; }
 .icon-button { display: inline-grid; width: 44px; height: 44px; flex: none; place-items: center; border-radius: 50%; color: var(--green); background: #edf0dd; }
-.icon-button:hover { background: #dde8bc; }
+.icon-button:not(:disabled):hover { background: #dde8bc; }
 .inner { padding-block: 40px 72px; min-height: 66vh; }
 .back { display: inline-flex; align-items: center; gap: .45rem; color: var(--green); font-weight: 700; font-size: .86rem; min-height: 44px; margin-bottom: 1.15rem; }
 .detail-grid, .purchase-grid { display: grid; grid-template-columns: 1.12fr 1fr; gap: clamp(1.2rem, 5vw, 4rem); align-items: start; }
@@ -106,7 +108,9 @@ button.text-link { min-height: 44px; font-size: .85rem; }
 .total strong { font-size: 1.2rem; white-space: nowrap; }
 .row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .75rem 1.3rem; }
 .row h2 { overflow-wrap: anywhere; }
+.order-summary { min-height: 44px; padding-block: .65rem; cursor: pointer; }
 .order-lines { display: grid; gap: .65rem; }
+.order-lines li span:first-child { overflow-wrap: anywhere; }
 .order-lines li span:last-child { white-space: nowrap; }
 .status { display: inline-flex; width: fit-content; padding: .22rem .62rem; border-radius: 100px; font-size: .76rem; font-weight: 700; background: #f4eacf; color: #654620; }
 .status-paid, .status-completed, .member-approved { background: #e4efdd; color: #275132; }
@@ -117,7 +121,7 @@ button.text-link { min-height: 44px; font-size: .85rem; }
 .admin-nav { display: flex; flex-direction: column; gap: .25rem; }
 .admin-nav a { display: flex; gap: .55rem; align-items: center; padding: .65rem .75rem; min-height: 44px; border-radius: 7px; color: var(--green); font-weight: 700; font-size: .86rem; }
 .admin-nav a:hover, .admin-nav a[aria-current="page"] { background: #e8edda; }
-.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 1.4rem 0; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin: 1.4rem 0; }
 .metrics p { color: var(--muted); font-size: .88rem; }
 .metrics strong { display: block; margin-top: .4rem; font-size: clamp(1.2rem, 3vw, 2rem); overflow-wrap: anywhere; }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem 1rem; }
@@ -131,6 +135,7 @@ footer { border-top: 1px solid var(--border); background: #edefe2; color: var(--
 footer .brand { font-size: 1.22rem; }
 footer .brand-mark { width: 32px; height: 32px; }
 @media (max-width: 950px) {
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {

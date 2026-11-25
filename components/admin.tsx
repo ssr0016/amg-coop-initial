@@ -32,9 +32,10 @@ export function Admin({ path, store }: { path: string; store: Store }) {
       {path === "admin" && <>
         <p className="muted mt-2">Track cooperative orders, payments, and member approvals.</p>
         <div className="metrics">
-          <div className="panel"><p>Total orders</p><strong>{store.orders.length}</strong></div>
-          <div className="panel"><p>Paid revenue</p><strong>{money(revenue)}</strong></div>
-          <div className="panel"><p>Pending payments</p><strong>{store.orders.filter((order) => order.status === "pending_payment").length}</strong></div>
+          <div className="panel"><p>Total Revenue</p><strong>{money(revenue)}</strong></div>
+          <div className="panel"><p>Pending Orders</p><strong>{store.orders.filter((order) => order.status === "pending_payment").length}</strong></div>
+          <div className="panel"><p>Total Approved Members</p><strong>{store.users.filter((user) => user.role === "member" && user.status === "approved").length}</strong></div>
+          <div className="panel"><p>Low Stock Alerts</p><strong>{store.products.filter((product) => product.stock < 5).length}</strong></div>
         </div>
         <div className="panel stack"><h2>Member approvals</h2><p className="muted">{pending ? `${pending} ${pending === 1 ? "application is" : "applications are"} waiting for review.` : "No pending members."}</p><div><Link href="/admin/members" className="text-link">Review members</Link></div></div>
       </>}
