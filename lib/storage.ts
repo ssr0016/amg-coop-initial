@@ -148,7 +148,7 @@ export function checkout() {
   const items = Object.entries(store.carts[user.id] ?? {}).map(([productId, quantity]) => {
     const product = store.products.find((item) => item.id === productId);
     if (!product || quantity > product.stock) throw new Error("Stock changed. Return to your cart and update the affected items.");
-    return { productId, name: product.name, price: product.price, quantity };
+    return { productId, name: product.name, price: product.price, quantity, category: product.category };
   });
   if (!items.length) throw new Error("Your cart is empty.");
   const order: Order = { id: crypto.randomUUID(), userId: user.id, items, total: orderTotal(items),

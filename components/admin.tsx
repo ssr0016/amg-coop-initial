@@ -6,6 +6,7 @@ import { ClipboardList, LayoutDashboard, Package, Settings as SettingsIcon, User
 import { money, nextStatuses, productCategories, statuses, statusLabel, type Order, type OrderStatus, type Product, type Store } from "../lib/models";
 import { deleteProduct, reviewMember, saveInstructions, saveProduct, updateOrder } from "../lib/storage";
 import { Empty, Status, useAction } from "./shared";
+import { Analytics } from "./analytics";
 import { orderCode, orderDate, OrderLines } from "./shop";
 
 const tabs = [
@@ -37,6 +38,7 @@ export function Admin({ path, store }: { path: string; store: Store }) {
           <div className="panel"><p>Total Approved Members</p><strong>{store.users.filter((user) => user.role === "member" && user.status === "approved").length}</strong></div>
           <div className="panel"><p>Low Stock Alerts</p><strong>{store.products.filter((product) => product.stock < 5).length}</strong></div>
         </div>
+        <Analytics orders={store.orders} products={store.products} />
         <div className="panel stack"><h2>Member approvals</h2><p className="muted">{pending ? `${pending} ${pending === 1 ? "application is" : "applications are"} waiting for review.` : "No pending members."}</p><div><Link href="/admin/members" className="text-link">Review members</Link></div></div>
       </>}
       {path === "admin/members" && <Members store={store} />}

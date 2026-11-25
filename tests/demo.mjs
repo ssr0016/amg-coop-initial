@@ -67,6 +67,7 @@ try {
 
   await login("admin@coop.test", "admin123");
   await heading("Dashboard");
+  await see("No sales data to display yet");
   await link("Members").press("Enter");
   await page.getByRole("article").filter({ hasText: "Demo Shopper" }).getByRole("button", { name: "Approve", exact: true }).press("Enter");
   await see("Member approved.");
@@ -204,6 +205,8 @@ try {
   await see("Pay the cooperative cashier on delivery.");
   await button("Place order").press("Enter");
   await see("Order placed.");
+  assert.equal(await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("ani-coop-market.v1")).orders[0].items[0].category), "Food Products");
   await see("Pending payment");
   await link("Cart (0)").press("Enter");
   await see("Your cart is empty.");
@@ -325,8 +328,52 @@ try {
   assert.deepEqual(categories.map((category) => migrated.products.filter((product) => product.category === category).length),
     [2, 2, 2, 2, 2, 2]);
 
+  await page.evaluate(() => {
+    const key = "ani-coop-market.v1";
+    const store = JSON.parse(localStorage.getItem(key));
+    const [template] = store.orders;
+    const item = (id, quantity) => {
+      const product = store.products.find((entry) => entry.id === id);
+      return { productId: id, name: product.name, price: product.price, quantity };
+    };
+    const stapler = { ...item("desk-stapler", 2), category: "Office Supplies" };
+    store.products = store.products.filter((product) => product.id !== stapler.productId);
+    store.orders = [
+      { ...template, id: "analytics-0", status: "completed", items: [item("rice", 4), stapler] },
+      { ...template, id: "analytics-1", status: "paid", items: [item("rice", 3), item("ruled-notebook", 5), item("coffee", 1)] },
+      ...["pending_payment", "confirmed", "cancelled"].map((status) =>
+        ({ ...template, id: "analytics-" + status, status, items: [item("coffee", 100)] })),
+    ];
+    localStorage.setItem(key, JSON.stringify(store));
+  });
+  await go("/admin");
+  const sales = page.getByRole("region", { name: "Sales by Category" });
+  await sales.waitFor({ timeout: 5000 });
+  const rows = sales.getByRole("listitem");
+  assert.equal(await rows.count(), categories.length);
+  await rows.filter({ hasText: "Food Products" }).getByText("8", { exact: true }).waitFor();
+  await rows.filter({ hasText: "School Supplies" }).getByText("5", { exact: true }).waitFor();
+  await rows.filter({ hasText: "Office Supplies" }).getByText("2", { exact: true }).waitFor();
+  await rows.filter({ hasText: "Souvenirs" }).getByText("0", { exact: true }).waitFor();
+
+  const top = page.getByRole("region", { name: "Top Selling Products" }).getByRole("listitem");
+  assert.equal(await top.count(), 3);
+  for (const [index, [name, total]] of [
+    ["Sinandomeng Rice", "7 sold"], ["Ruled School Notebook", "5 sold"], ["Compact Desk Stapler", "2 sold"],
+  ].entries()) {
+    await top.nth(index).getByText(name, { exact: true }).waitFor();
+    await top.nth(index).getByText(total, { exact: true }).waitFor();
+  }
+
+  const breakdown = page.getByRole("region", { name: "Order Status Breakdown" });
+  for (const [status, share] of [["Pending", "40%"], ["Paid", "20%"], ["Completed", "20%"], ["Cancelled", "20%"]]) {
+    await breakdown.getByRole("listitem").filter({ has: page.getByText(status, { exact: true }) })
+      .getByText(share, { exact: true }).waitFor();
+  }
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+
   assert.deepEqual(errors, []);
-  console.log("Passed: account approvals, route protection, product CRUD and photo uploads, category filters and migration, stock limits, settings, cart persistence, COD checkout, admin order updates, revenue, isolated member history, and member order cancellation.");
+  console.log("Passed: account approvals, route protection, product CRUD and photo uploads, category filters and migration, stock limits, settings, cart persistence, COD checkout, admin order updates, revenue, overview analytics, isolated member history, and member order cancellation.");
 } finally {
   await browser.close();
 }

@@ -26,7 +26,7 @@ export const nextStatuses: Record<OrderStatus, OrderStatus[]> = {
   cancelled: [],
 };
 
-export type OrderItem = { productId: string; name: string; price: number; quantity: number };
+export type OrderItem = { productId: string; name: string; price: number; quantity: number; category?: string };
 export type Order = {
   id: string; userId: string; createdAt: string; items: OrderItem[]; total: number;
   paymentMethod: "cod"; status: OrderStatus; payment_reference: string; admin_notes: string;
