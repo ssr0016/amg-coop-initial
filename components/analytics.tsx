@@ -42,7 +42,7 @@ export function Analytics({ orders, salesOrders, products }: Pick<Store, "orders
 
   return <section className="analytics" aria-labelledby="analytics-heading">
     <h2 id="analytics-heading">Analytics</h2>
-    {topProducts.length ? <div className="analytics-grid">
+    {topProducts.length ? <div className="analytics-grid grid grid-cols-1 gap-3.5 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
       <section className="panel" aria-labelledby="category-sales-heading">
         <h3 id="category-sales-heading">Sales by Category</h3>
         <p className="muted text-sm">Units sold · Paid and completed orders</p>

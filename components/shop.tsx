@@ -172,7 +172,7 @@ export function Catalog({ products, user }: { products: Product[]; user?: User }
     <section id="catalog" className="catalog">
       <div className="catalog-head">
         <h2 ref={catalogHeading} tabIndex={-1}>Shop the market</h2>
-        <label className="search">
+        <label className="search w-full sm:max-w-[305px]">
           Search products
           <span className="search-field"><Search size={19} aria-hidden />
             <input type="search" placeholder="Product name" value={search} onChange={(event) => {
@@ -191,8 +191,8 @@ export function Catalog({ products, user }: { products: Product[]; user?: User }
         </div>
         <span className="muted text-sm" aria-live="polite">{shown.length} {shown.length === 1 ? "product" : "products"}</span>
       </div>
-      {shown.length ? <div className="product-grid">{shown.slice(start, start + pageSize).map((product) => <article className="product-card" key={product.id}>
-        <Link href={`/products/${product.id}`} aria-label={`View ${product.name}, ${product.stock} in stock`}><Photo product={product} sizes="(max-width: 680px) 50vw, (max-width: 950px) 33vw, 25vw" /></Link>
+      {shown.length ? <div className="product-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{shown.slice(start, start + pageSize).map((product) => <article className="product-card" key={product.id}>
+        <Link href={`/products/${product.id}`} aria-label={`View ${product.name}, ${product.stock} in stock`}><Photo product={product} sizes="(min-width: 1280px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw" /></Link>
         <div className="product-copy">
           <p className="product-category">{product.category}</p>
           <h3><Link href={`/products/${product.id}`}>{product.name}</Link></h3>
@@ -213,8 +213,8 @@ export function Catalog({ products, user }: { products: Product[]; user?: User }
 export function ProductDetail({ product, user }: { product?: Product; user?: User }) {
   return <section className="wrap inner">
     <Link className="back" href="/#catalog"><ArrowLeft size={17} aria-hidden /> Back to shop</Link>
-    {product ? <div className="detail-grid">
-      <Photo product={product} sizes="(max-width: 680px) 100vw, 50vw" />
+    {product ? <div className="detail-grid grid grid-cols-1 md:grid-cols-[minmax(0,1.12fr)_minmax(0,1fr)]">
+      <Photo product={product} sizes="(min-width: 768px) 50vw, 100vw" />
       <div className="detail-copy">
         <p className="product-category">{product.category}</p><h1>{product.name}</h1><p className="muted">{product.description}</p>
         <p className="detail-price">{money(product.price)} <span>/ {product.unit}</span></p>
@@ -242,7 +242,7 @@ export function Basket({ store, user, checkoutMode }: { store: Store; user: User
     <h1>{title}</h1>
     {placed ? <div className="panel stack mt-6"><h2>Order placed.</h2><div><Status value="pending_payment" /></div><p className="muted">You can follow your order in your order history.</p><div><Link className="button" href="/orders">View my orders <ArrowRight size={17} aria-hidden /></Link></div></div> :
       !entries.length ? <Empty action={<Link className="button" href="/#catalog">Browse products</Link>}>Your cart is empty.</Empty> :
-      <div className="purchase-grid">
+      <div className="purchase-grid grid grid-cols-1 md:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
         <div className="panel stack">
           <h2>{checkoutMode ? "Order summary" : "Items in your cart"}</h2>
           {entries.map(({ id, quantity, product }) => <div key={id} className="line-item">
@@ -250,10 +250,10 @@ export function Basket({ store, user, checkoutMode }: { store: Store; user: User
               <p className="muted text-sm">{product ? `${money(product.price)} / ${product.unit}` : "No longer available"}</p>
               {product && quantity > product.stock && <p className="error-text text-sm">Only {product.stock} in stock</p>}
             </div>
-            {checkoutMode ? <span>× {quantity}</span> : <div className="line-controls">
+            {checkoutMode ? <span>× {quantity}</span> : <div className="line-controls w-full sm:w-auto">
               {product && product.stock > 0 && <input aria-label={`Quantity for ${product.name}`} className="quantity" type="number" min="1" max={product.stock}
                 value={quantity} onChange={(event) => { if (event.target.value) act(() => setQuantity(id, Number(event.target.value))); }} />}
-              <button type="button" className="text-link" onClick={() => act(() => setQuantity(id, 0), "Item removed.")}>Remove</button>
+              <button type="button" className="text-link w-full sm:w-auto" onClick={() => act(() => setQuantity(id, 0), "Item removed.")}>Remove</button>
             </div>}
           </div>)}
         </div>
@@ -313,7 +313,7 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
             <p className="text-sm">{codLabel}</p>
             <p className="mt-2 whitespace-pre-wrap">{instructions}</p>
           </div>
-          {order.payment_reference && <p className="muted text-sm">Payment reference: {order.payment_reference}</p>}
+          {order.payment_reference && <p className="muted text-sm [overflow-wrap:anywhere]">Payment reference: {order.payment_reference}</p>}
         </div>
       </details>
     </article>) : <Empty action={<Link className="button" href="/#catalog">Browse products</Link>}>You haven’t placed any orders yet.</Empty>}</div>

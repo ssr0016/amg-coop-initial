@@ -42,9 +42,9 @@ export function Market({ path }: { path: string }) {
     <a className="skip" href="#main">Skip to content</a>
     <header className="site-header bg-white">
       <div className="demo-strip"><span aria-hidden />DEMO MODE — data saved in your browser only</div>
-      <div className="wrap nav-row">
-        <Link href="/" className="brand">AMG Co-op Market</Link>
-        <nav aria-label="Main navigation" className="nav-links">
+      <div className="wrap nav-row flex-col py-3 md:flex-row md:py-0">
+        <Link href="/" className="brand max-w-full text-center [overflow-wrap:anywhere]">AMG Co-op Market</Link>
+        <nav aria-label="Main navigation" className="nav-links w-full min-w-0 justify-center gap-x-3 gap-y-1 md:w-auto md:justify-end md:gap-x-6">
           <Link href="/" aria-current={!path ? "page" : undefined}>Shop</Link>
           {user?.role === "admin" && <Link href="/admin" aria-current={role === "admin" ? "page" : undefined}>Admin</Link>}
           {user?.role === "member" && <>

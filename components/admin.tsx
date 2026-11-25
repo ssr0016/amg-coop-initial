@@ -47,16 +47,16 @@ export function Admin({ path, store }: { path: string; store: Store }) {
   const revenue = salesOrders
     .reduce((sum, order) => sum + Math.round(order.total * 100), 0) / 100;
   const pending = store.users.filter((user) => user.role === "member" && user.status === "pending").length;
-  return <section className="wrap admin-wrap">
+  return <section className="wrap admin-wrap grid grid-cols-1 lg:grid-cols-[180px_minmax(0,1fr)]">
     <aside><p className="product-category admin-menu-label">MARKET ADMIN</p>
-      <nav aria-label="Admin navigation" className="admin-nav">{tabs.map(([href, label, Icon]) =>
+      <nav aria-label="Admin navigation" className="admin-nav lg:flex-col">{tabs.map(([href, label, Icon]) =>
         <Link key={href} href={href} aria-current={href === `/${path}` ? "page" : undefined}><Icon size={18} aria-hidden />{label}</Link>)}</nav>
     </aside>
     <div className="admin-content">
       <h1>{pages[path]}</h1>
       {path === "admin" && <>
         <p className="muted mt-2">Track cooperative orders, payments, and member approvals.</p>
-        <div className="field mt-4 max-w-xs">
+        <div className="field mt-4 sm:max-w-xs">
           <label htmlFor="sales-period">Sales period</label>
           <select id="sales-period" value={period} onChange={(event) => setPeriod(event.target.value as SalesPeriod)}>
             <option value="all">All Time</option>
@@ -64,7 +64,7 @@ export function Admin({ path, store }: { path: string; store: Store }) {
             <option value="week">This Week</option>
           </select>
         </div>
-        <div className="metrics">
+        <div className="metrics grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <div className="panel"><p>Total Revenue</p><strong>{money(revenue)}</strong></div>
           <div className="panel"><p>Pending Orders</p><strong>{store.orders.filter((order) => order.status === "pending_payment").length}</strong></div>
           <div className="panel"><p>Total Approved Members</p><strong>{store.users.filter((user) => user.role === "member" && user.status === "approved").length}</strong></div>
@@ -85,7 +85,7 @@ function Members({ store }: { store: Store }) {
   const act = useAction();
   const members = store.users.filter((user) => user.role === "member");
   return <div className="stack mt-6">
-    <div><button type="button" className="button secondary" onClick={() => act(() => downloadCsv("members.csv",
+    <div><button type="button" className="button secondary w-full sm:w-auto" onClick={() => act(() => downloadCsv("members.csv",
       ["Member ID", "Name", "Email", "Contact", "Status"],
       members.map((user) => [user.memberId, user.name, user.email, user.contact, user.status])), exportMessage)}>
       Export Members (CSV)
@@ -174,7 +174,7 @@ function ProductForm({ product, saving, onSave, onClose }: {
     <div className="field">
       <p id="photo-hint" className="muted text-sm">Images up to 2 MB.</p>
       <input ref={fileInput} type="file" accept="image/*" hidden onChange={readPhoto} />
-      <div><button type="button" className="button secondary" aria-describedby="photo-hint" disabled={readingPhoto || saving}
+      <div><button type="button" className="button secondary w-full sm:w-auto" aria-describedby="photo-hint" disabled={readingPhoto || saving}
         onClick={() => fileInput.current?.click()}>Choose Image</button></div>
       {readingPhoto && <p className="muted text-sm" role="status">Reading image…</p>}
       {preview && <img className="product-photo-preview" src={preview} alt="Product photo preview" />}
@@ -231,13 +231,13 @@ function Orders({ store }: { store: Store }) {
   const [selected, setSelected] = useState<string>();
   const shown = store.orders.filter((order) => !filter || order.status === filter);
   return <div className="stack mt-6">
-    <div><button type="button" className="button secondary" onClick={() => act(() => downloadCsv("orders.csv",
+    <div><button type="button" className="button secondary w-full sm:w-auto" onClick={() => act(() => downloadCsv("orders.csv",
       ["Order ID", "Date", "Member Name", "Total", "Status", "Payment Ref"],
       store.orders.map((order) => [order.id, order.createdAt,
         store.users.find((user) => user.id === order.userId)?.name, order.total, order.status, order.payment_reference])), exportMessage)}>
       Export Orders (CSV)
     </button></div>
-    <div className="field max-w-xs"><label htmlFor="status-filter">Filter by status</label><select id="status-filter" value={filter} onChange={(event) => { setFilter(event.target.value); setSelected(undefined); }}>
+    <div className="field sm:max-w-xs"><label htmlFor="status-filter">Filter by status</label><select id="status-filter" value={filter} onChange={(event) => { setFilter(event.target.value); setSelected(undefined); }}>
       <option value="">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{statusLabel[item]}</option>)}
     </select></div>
     {shown.length ? shown.map((order) => {
@@ -269,7 +269,7 @@ function OrderForm({ order, contact, saving, disabled, onSave }: {
   }
   return <form className="stack order-form" onSubmit={submit}>
     <OrderLines order={order} />
-    <p className="muted text-sm">Cash on Delivery / Pay to Admin{contact ? ` · ${contact}` : ""}</p>
+    <p className="muted text-sm [overflow-wrap:anywhere]">Cash on Delivery / Pay to Admin{contact ? ` · ${contact}` : ""}</p>
     <div className="field-grid">
       <div className="field"><label htmlFor="order-status">Order status</label><select id="order-status" name="status" defaultValue={order.status}>
         {[order.status, ...nextStatuses[order.status]].map((item) => <option key={item} value={item}>{statusLabel[item]}</option>)}
@@ -277,7 +277,7 @@ function OrderForm({ order, contact, saving, disabled, onSave }: {
       <label>Payment reference<input name="reference" defaultValue={order.payment_reference} maxLength={100} /></label>
     </div>
     <div className="field"><label htmlFor="order-notes">Admin notes</label><textarea id="order-notes" name="notes" defaultValue={order.admin_notes} maxLength={1000} rows={3} /></div>
-    <div><button className="button" disabled={disabled}>{saving ? <PendingLabel>Saving...</PendingLabel> : "Save order"}</button></div>
+    <div><button className="button w-full sm:w-auto" disabled={disabled}>{saving ? <PendingLabel>Saving...</PendingLabel> : "Save order"}</button></div>
   </form>;
 }
 
@@ -291,6 +291,6 @@ function PaymentSettings({ instructions }: { instructions: string }) {
     <h2>Checkout payment</h2>
     <p className="muted">Members see these instructions when they place a Cash on Delivery order.</p>
     <div className="field"><label htmlFor="payment-instructions">Payment instructions</label><textarea id="payment-instructions" key={instructions} name="instructions" defaultValue={instructions} rows={5} required maxLength={1200} /></div>
-    <div><button className="button" disabled={Boolean(pending)}>{pending ? <PendingLabel>Saving...</PendingLabel> : "Save instructions"}</button></div>
+    <div><button className="button w-full sm:w-auto" disabled={Boolean(pending)}>{pending ? <PendingLabel>Saving...</PendingLabel> : "Save instructions"}</button></div>
   </form>;
 }
