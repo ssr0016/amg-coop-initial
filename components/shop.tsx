@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { money, nextStatuses, orderTotal, productCategories, type Order, type Product, type Store, type User } from "../lib/models";
 import { cancelOrder, checkout, setQuantity } from "../lib/storage";
-import { Empty, Status, useAction } from "./shared";
+import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
 
 const categories = ["All", ...productCategories];
 const categoryIcons = {
@@ -229,6 +229,7 @@ const codLabel = "Cash on Delivery / Pay to Admin";
 
 export function Basket({ store, user, checkoutMode }: { store: Store; user: User; checkoutMode: boolean }) {
   const act = useAction();
+  const { pending, run } = usePendingAction();
   const [placed, setPlaced] = useState(false);
   const entries = Object.entries(store.carts[user.id] ?? {}).map(([id, quantity]) => ({
     id, quantity, product: store.products.find((product) => product.id === id),
@@ -261,8 +262,13 @@ export function Basket({ store, user, checkoutMode }: { store: Store; user: User
           {checkoutMode && <div className="callout stack"><div className="flex items-center gap-2"><Truck size={20} aria-hidden /><strong>{codLabel}</strong></div><p className="whitespace-pre-wrap">{store.settings.paymentInstructions}</p></div>}
           <div className="total"><span>Total</span><strong>{money(orderTotal(items))}</strong></div>
           {!valid && <p className="error-text">Update unavailable items in your cart before placing an order.</p>}
-          {checkoutMode ? <button className="button" type="button" disabled={!valid}
-            onClick={() => { if (act(checkout)) setPlaced(true); }}>Place order <ArrowRight size={17} aria-hidden /></button> :
+          {checkoutMode ? <button className="button" type="button" disabled={!valid || Boolean(pending)}
+            onClick={() => run(() => {
+              checkout();
+              setPlaced(true);
+            }, "Order placed successfully!")}>
+            {pending ? <PendingLabel>Processing...</PendingLabel> : <>Place order <ArrowRight size={17} aria-hidden /></>}
+          </button> :
             valid && <Link className="button" href="/checkout">Checkout <ArrowRight size={17} aria-hidden /></Link>}
         </aside>
       </div>}
@@ -278,19 +284,22 @@ export const orderCode = (id: string) => `AMG-${id.slice(0, 8).toUpperCase()}`;
 export const orderDate = (date: string) => new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(new Date(date));
 
 export function History({ orders, instructions }: { orders: Order[]; instructions: string }) {
-  const act = useAction();
+  const { pending, run } = usePendingAction();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const orderToCancel = useRef("");
+
   return <section className="wrap inner">
-    <h1>My orders</h1>
+    <h1 ref={heading} tabIndex={-1}>My orders</h1>
     <p className="muted mt-2">Track your cooperative orders and payments.</p>
     <div className="stack mt-6">{orders.length ? orders.map((order) => <article className="panel stack" key={order.id}>
       <div className="row">
         <div><h2>{orderCode(order.id)}</h2><p className="muted text-sm">{orderDate(order.createdAt)}</p></div>
         <div className="row-actions">
           <Status value={order.status} />
-          {nextStatuses[order.status].includes("cancelled") && <button type="button" className="button secondary" onClick={() => {
-            if (window.confirm("Are you sure you want to cancel this order?")) {
-              act(() => cancelOrder(order.id), "Order cancelled.");
-            }
+          {nextStatuses[order.status].includes("cancelled") && <button type="button" className="button secondary" aria-haspopup="dialog" onClick={() => {
+            orderToCancel.current = order.id;
+            dialog.current?.showModal();
           }}>Cancel Order</button>}
         </div>
       </div>
@@ -308,5 +317,27 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
         </div>
       </details>
     </article>) : <Empty action={<Link className="button" href="/#catalog">Browse products</Link>}>You haven’t placed any orders yet.</Empty>}</div>
+    <dialog ref={dialog} aria-labelledby="cancel-order-title" aria-describedby="cancel-order-description"
+      className="panel fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-md max-h-[calc(100%_-_2rem)] overflow-y-auto shadow-xl backdrop:bg-black/55"
+      onCancel={(event) => { if (pending) event.preventDefault(); }}>
+      <div className="stack">
+        <h2 id="cancel-order-title">Cancel Order?</h2>
+        <p id="cancel-order-description" className="muted">Are you sure you want to cancel this order? This action cannot be undone.</p>
+        <div className="row-actions justify-end">
+          <button type="button" className="button neutral" disabled={Boolean(pending)}
+            onClick={() => dialog.current?.close()}>Keep Order</button>
+          <button type="button" className="button danger" disabled={Boolean(pending)} onClick={() => run(() => {
+            try {
+              cancelOrder(orderToCancel.current);
+            } finally {
+              dialog.current?.close();
+            }
+            heading.current?.focus({ preventScroll: true });
+          }, "Order cancelled successfully.")}>
+            {pending ? <PendingLabel>Processing...</PendingLabel> : "Yes, Cancel"}
+          </button>
+        </div>
+      </div>
+    </dialog>
   </section>;
 }

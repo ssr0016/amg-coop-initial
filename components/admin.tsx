@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { ClipboardList, LayoutDashboard, Package, Settings as SettingsIcon, Users, Plus } from "lucide-react";
 import { downloadCsv } from "../lib/csv";
-import { money, nextStatuses, productCategories, statuses, statusLabel, type Order, type OrderStatus, type Product, type Store } from "../lib/models";
+import { money, nextStatuses, productCategories, statuses, statusLabel, type Order, type OrderStatus, type Product, type Store, type User } from "../lib/models";
 import { deleteProduct, reviewMember, saveInstructions, saveProduct, updateOrder } from "../lib/storage";
-import { Empty, Status, useAction } from "./shared";
+import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
 import { Analytics } from "./analytics";
 import { orderCode, orderDate, OrderLines } from "./shop";
 
@@ -20,13 +20,13 @@ const pages: Record<string, string> = {
   "admin/orders": "Orders", "admin/settings": "Settings",
 };
 const exportMessage = "Export successful! File downloaded.";
-const exportNoticeMs = 3000;
 
 type SalesPeriod = "all" | "month" | "week";
 const manilaOffsetMs = 8 * 60 * 60 * 1000;
 
-function ordersInPeriod(orders: Order[], period: SalesPeriod) {
-  if (period === "all") return orders;
+function salesInPeriod(orders: Order[], period: SalesPeriod) {
+  const sales = orders.filter(({ status }) => status === "paid" || status === "completed");
+  if (period === "all") return sales;
 
   const now = Date.now();
   // Use UTC setters on Manila's local date so the browser's time zone cannot shift the boundary.
@@ -35,7 +35,7 @@ function ordersInPeriod(orders: Order[], period: SalesPeriod) {
   const daysSinceMonday = (start.getUTCDay() + 6) % 7;
   start.setUTCDate(period === "month" ? 1 : start.getUTCDate() - daysSinceMonday);
   const from = start.getTime() - manilaOffsetMs;
-  return orders.filter(({ createdAt }) => {
+  return sales.filter(({ createdAt }) => {
     const created = Date.parse(createdAt);
     return created >= from && created <= now;
   });
@@ -43,7 +43,7 @@ function ordersInPeriod(orders: Order[], period: SalesPeriod) {
 
 export function Admin({ path, store }: { path: string; store: Store }) {
   const [period, setPeriod] = useState<SalesPeriod>("all");
-  const salesOrders = ordersInPeriod(store.orders, period).filter((order) => order.status === "paid" || order.status === "completed");
+  const salesOrders = salesInPeriod(store.orders, period);
   const revenue = salesOrders
     .reduce((sum, order) => sum + Math.round(order.total * 100), 0) / 100;
   const pending = store.users.filter((user) => user.role === "member" && user.status === "pending").length;
@@ -87,28 +87,40 @@ function Members({ store }: { store: Store }) {
   return <div className="stack mt-6">
     <div><button type="button" className="button secondary" onClick={() => act(() => downloadCsv("members.csv",
       ["Member ID", "Name", "Email", "Contact", "Status"],
-      members.map((user) => [user.memberId, user.name, user.email, user.contact, user.status])), exportMessage, exportNoticeMs)}>
+      members.map((user) => [user.memberId, user.name, user.email, user.contact, user.status])), exportMessage)}>
       Export Members (CSV)
     </button></div>
     {!members.some((user) => user.status === "pending") && <p className="callout">No pending members.</p>}
     {[...members].sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending")).map((user) =>
-      <article key={user.id} className="panel row">
-        <div><h2>{user.name}</h2><p className="muted text-sm break-all">{user.email}</p><p className="muted text-sm">{user.memberId} · {user.contact}</p></div>
-        <div className="row-actions">
-          <span className={`status member-${user.status}`}>{user.status[0].toUpperCase() + user.status.slice(1)}</span>
-          {user.status === "pending" && <>
-            <button type="button" className="button secondary" onClick={() => act(() => reviewMember(user.id, "rejected"), "Member rejected.")}>Reject</button>
-            <button type="button" className="button" onClick={() => act(() => reviewMember(user.id, "approved"), "Member approved.")}>Approve</button>
-          </>}
-        </div>
-      </article>)}
+      <MemberRow key={user.id} user={user} />)}
   </div>;
+}
+
+function MemberRow({ user }: { user: User }) {
+  const { pending, run } = usePendingAction();
+  return <article className="panel row">
+    <div><h2>{user.name}</h2><p className="muted text-sm break-all">{user.email}</p><p className="muted text-sm">{user.memberId} · {user.contact}</p></div>
+    <div className="row-actions">
+      <span className={`status member-${user.status}`}>{user.status[0].toUpperCase() + user.status.slice(1)}</span>
+      {user.status === "pending" && <>
+        <button type="button" className="button secondary" disabled={Boolean(pending)}
+          onClick={() => run(() => reviewMember(user.id, "rejected"), "Member rejected.", "reject")}>
+          {pending === "reject" ? <PendingLabel>Processing...</PendingLabel> : "Reject"}
+        </button>
+        <button type="button" className="button" disabled={Boolean(pending)}
+          onClick={() => run(() => reviewMember(user.id, "approved"), "Member approved.", "approve")}>
+          {pending === "approve" ? <PendingLabel>Approving...</PendingLabel> : "Approve"}
+        </button>
+      </>}
+    </div>
+  </article>;
 }
 
 const blank: Product = { id: "", name: "", category: productCategories[0], description: "", stock: 0, price: 0, image: "", unit: "" };
 
-function ProductForm({ product, onClose }: { product: Product; onClose: () => void }) {
-  const act = useAction();
+function ProductForm({ product, saving, onSave, onClose }: {
+  product: Product; saving: boolean; onSave: (product: Product) => void; onClose: () => void;
+}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [imageUrl, setImageUrl] = useState(product.image_url);
   const [readingPhoto, setReadingPhoto] = useState(false);
@@ -139,12 +151,12 @@ function ProductForm({ product, onClose }: { product: Product; onClose: () => vo
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (readingPhoto) return;
+    if (readingPhoto || saving) return;
     const form = new FormData(event.currentTarget);
     const read = (key: string) => String(form.get(key) ?? "").trim();
     const updated = { ...product, name: read("name"), description: read("description"), category: read("category"),
       unit: read("unit"), price: Number(read("price")), stock: Number(read("stock")), image_url: imageUrl };
-    if (act(() => saveProduct(updated), "Product saved.")) onClose();
+    onSave(updated);
   }
 
   return <form className="panel stack" onSubmit={submit}>
@@ -162,20 +174,22 @@ function ProductForm({ product, onClose }: { product: Product; onClose: () => vo
     <div className="field">
       <p id="photo-hint" className="muted text-sm">Images up to 2 MB.</p>
       <input ref={fileInput} type="file" accept="image/*" hidden onChange={readPhoto} />
-      <div><button type="button" className="button secondary" aria-describedby="photo-hint" disabled={readingPhoto}
+      <div><button type="button" className="button secondary" aria-describedby="photo-hint" disabled={readingPhoto || saving}
         onClick={() => fileInput.current?.click()}>Choose Image</button></div>
       {readingPhoto && <p className="muted text-sm" role="status">Reading image…</p>}
       {preview && <img className="product-photo-preview" src={preview} alt="Product photo preview" />}
     </div>
     <div className="row-actions">
-      <button className="button" disabled={readingPhoto}>Save product</button>
-      <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+      <button className="button" disabled={readingPhoto || saving}>{saving ? <PendingLabel>Saving...</PendingLabel> : "Save product"}</button>
+      <button type="button" className="button secondary" disabled={saving} onClick={onClose}>Cancel</button>
     </div>
   </form>;
 }
 
 function Products({ products }: { products: Product[] }) {
   const act = useAction();
+  const { pending, run } = usePendingAction();
+  const saving = Boolean(pending);
   const [editing, setEditing] = useState<Product>();
   const [confirm, setConfirm] = useState<string>();
   return <div className="stack mt-6">
@@ -183,24 +197,28 @@ function Products({ products }: { products: Product[] }) {
       {!editing && <button type="button" className="button" onClick={() => { setConfirm(undefined); setEditing(blank); }}><Plus size={17} aria-hidden /> Add product</button>}
       <button type="button" className="button secondary" onClick={() => act(() => downloadCsv("inventory.csv",
         ["Product Name", "Category", "Price", "Stock", "Unit"],
-        products.map((product) => [product.name, product.category, product.price, product.stock, product.unit])), exportMessage, exportNoticeMs)}>
+        products.map((product) => [product.name, product.category, product.price, product.stock, product.unit])), exportMessage)}>
         Export Inventory (CSV)
       </button>
     </div>
-    {editing && <ProductForm key={editing.id} product={editing} onClose={() => setEditing(undefined)} />}
+    {editing && <ProductForm key={editing.id} product={editing} saving={saving} onClose={() => setEditing(undefined)}
+      onSave={(product) => run(() => {
+        saveProduct(product);
+        setEditing(undefined);
+      }, "Product saved successfully.")} />}
     {products.length ? products.map((product) => <article className="panel row" key={product.id}>
       <div><h2>{product.name}</h2><p className="muted text-sm">{product.category} · {money(product.price)} / {product.unit} · {product.stock} in stock</p></div>
       <div className="row-actions">{confirm === product.id ? <>
         <button type="button" className="button secondary" onClick={() => setConfirm(undefined)}>Cancel</button>
-        <button type="button" className="button danger" onClick={() => {
+        <button type="button" className="button danger" disabled={saving} onClick={() => {
           if (act(() => deleteProduct(product.id), "Product deleted.")) {
             setConfirm(undefined);
             if (editing?.id === product.id) setEditing(undefined);
           }
         }}>Confirm delete</button>
       </> : <>
-        <button type="button" className="button secondary" onClick={() => setEditing(product)}>Edit</button>
-        <button type="button" className="button secondary" onClick={() => setConfirm(product.id)}>Delete</button>
+        <button type="button" className="button secondary" disabled={saving} onClick={() => setEditing(product)}>Edit</button>
+        <button type="button" className="button secondary" disabled={saving} onClick={() => setConfirm(product.id)}>Delete</button>
       </>}</div>
     </article>) : <Empty>No products in the catalog.</Empty>}
   </div>;
@@ -208,6 +226,7 @@ function Products({ products }: { products: Product[] }) {
 
 function Orders({ store }: { store: Store }) {
   const act = useAction();
+  const { pending, run } = usePendingAction();
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<string>();
   const shown = store.orders.filter((order) => !filter || order.status === filter);
@@ -215,7 +234,7 @@ function Orders({ store }: { store: Store }) {
     <div><button type="button" className="button secondary" onClick={() => act(() => downloadCsv("orders.csv",
       ["Order ID", "Date", "Member Name", "Total", "Status", "Payment Ref"],
       store.orders.map((order) => [order.id, order.createdAt,
-        store.users.find((user) => user.id === order.userId)?.name, order.total, order.status, order.payment_reference])), exportMessage, exportNoticeMs)}>
+        store.users.find((user) => user.id === order.userId)?.name, order.total, order.status, order.payment_reference])), exportMessage)}>
       Export Orders (CSV)
     </button></div>
     <div className="field max-w-xs"><label htmlFor="status-filter">Filter by status</label><select id="status-filter" value={filter} onChange={(event) => { setFilter(event.target.value); setSelected(undefined); }}>
@@ -229,20 +248,24 @@ function Orders({ store }: { store: Store }) {
           <div className="row-actions"><Status value={order.status} /><button type="button" className="button secondary" aria-expanded={selected === order.id}
             onClick={() => setSelected(selected === order.id ? undefined : order.id)}>{selected === order.id ? "Hide order" : "View order"}</button></div>
         </div>
-        {selected === order.id && <OrderForm key={`${order.id}-${order.status}`} order={order} contact={member?.contact} />}
+        {selected === order.id && <OrderForm key={`${order.id}-${order.status}`} order={order} contact={member?.contact}
+          saving={pending === order.id} disabled={Boolean(pending)} onSave={(status, reference, notes) => run(
+            () => updateOrder(order.id, status, reference, notes, order.status), "Order updated.", order.id
+          )} />}
       </article>;
     }) : <Empty>{filter ? "No orders match this status." : "No orders have been placed yet."}</Empty>}
   </div>;
 }
 
-function OrderForm({ order, contact }: { order: Order; contact?: string }) {
-  const act = useAction();
+function OrderForm({ order, contact, saving, disabled, onSave }: {
+  order: Order; contact?: string; saving: boolean; disabled: boolean;
+  onSave: (status: OrderStatus, reference: string, notes: string) => void;
+}) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const status = form.get("status") as OrderStatus;
-    act(() => updateOrder(order.id, status, String(form.get("reference") ?? "").trim(),
-      String(form.get("notes") ?? "").trim(), order.status), "Order updated.");
+    onSave(status, String(form.get("reference") ?? "").trim(), String(form.get("notes") ?? "").trim());
   }
   return <form className="stack order-form" onSubmit={submit}>
     <OrderLines order={order} />
@@ -254,20 +277,20 @@ function OrderForm({ order, contact }: { order: Order; contact?: string }) {
       <label>Payment reference<input name="reference" defaultValue={order.payment_reference} maxLength={100} /></label>
     </div>
     <div className="field"><label htmlFor="order-notes">Admin notes</label><textarea id="order-notes" name="notes" defaultValue={order.admin_notes} maxLength={1000} rows={3} /></div>
-    <div><button className="button">Save order</button></div>
+    <div><button className="button" disabled={disabled}>{saving ? <PendingLabel>Saving...</PendingLabel> : "Save order"}</button></div>
   </form>;
 }
 
 function PaymentSettings({ instructions }: { instructions: string }) {
-  const act = useAction();
+  const { pending, run } = usePendingAction();
   return <form className="panel stack mt-6" onSubmit={(event) => {
     event.preventDefault();
     const value = String(new FormData(event.currentTarget).get("instructions") ?? "");
-    act(() => saveInstructions(value), "Payment instructions saved.");
+    run(() => saveInstructions(value), "Payment instructions saved.");
   }}>
     <h2>Checkout payment</h2>
     <p className="muted">Members see these instructions when they place a Cash on Delivery order.</p>
     <div className="field"><label htmlFor="payment-instructions">Payment instructions</label><textarea id="payment-instructions" key={instructions} name="instructions" defaultValue={instructions} rows={5} required maxLength={1200} /></div>
-    <div><button className="button">Save instructions</button></div>
+    <div><button className="button" disabled={Boolean(pending)}>{pending ? <PendingLabel>Saving...</PendingLabel> : "Save instructions"}</button></div>
   </form>;
 }

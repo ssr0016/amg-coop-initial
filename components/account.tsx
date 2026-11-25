@@ -5,25 +5,24 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { Leaf } from "lucide-react";
 import { login, register } from "../lib/storage";
+import { PendingLabel, usePendingAction } from "./shared";
 
 export function Account({ registerMode, ready }: { registerMode: boolean; ready: boolean }) {
   const router = useRouter();
-  const [error, setError] = useState("");
+  const { pending, run } = usePendingAction();
   const [registered, setRegistered] = useState("");
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
     const read = (name: string) => String(values.get(name) ?? "");
-    setError("");
-    try {
+    if (!ready) return;
+    run(() => {
       if (registerMode) setRegistered(register({
         name: read("name"), email: read("email"), password: read("password"),
         memberId: read("memberId"), contact: read("contact"),
       }));
       else router.push(login(read("email"), read("password")) === "admin" ? "/admin" : "/");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Please try again.");
-    }
+    }, registerMode ? "Registration submitted." : "Signed in.");
   }
 
   return <section className="wrap account-wrap">
@@ -40,8 +39,9 @@ export function Account({ registerMode, ready }: { registerMode: boolean; ready:
             <label>Member ID<input name="memberId" required maxLength={40} /></label>
             <label>Contact number<input name="contact" type="tel" required maxLength={20} autoComplete="tel" /></label>
           </>}
-          {error && <p className="callout error-text" role="alert">{error}</p>}
-          <button className="button" disabled={!ready}>{registerMode ? "Create account" : "Sign in"}</button>
+          <button className="button" disabled={!ready || Boolean(pending)}>
+            {pending ? <PendingLabel>Processing...</PendingLabel> : registerMode ? "Create account" : "Sign in"}
+          </button>
           <p className="muted text-sm">{registerMode ? "Already registered? " : "New to the market? "}<Link className="text-link" href={registerMode ? "/login" : "/register"}>{registerMode ? "Sign in" : "Register"}</Link></p>
         </form>}
     </div>

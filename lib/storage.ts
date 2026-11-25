@@ -97,8 +97,10 @@ export function register(input: Pick<User, "name" | "email" | "password" | "memb
 export function reviewMember(id: string, status: "approved" | "rejected") {
   const store = getStore();
   requireRole(store, "admin");
+  const member = store.users.find((user) => user.id === id && user.role === "member" && user.status === "pending");
+  if (!member) throw new Error("This member application is no longer pending.");
   setStore({ ...store, users: store.users.map((user) =>
-    user.id === id && user.role === "member" && user.status === "pending" ? { ...user, status } : user) });
+    user === member ? { ...user, status } : user) });
 }
 
 export function saveProduct(product: Product) {
