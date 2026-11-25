@@ -57,7 +57,7 @@ try {
   await page.locator("form button:enabled").waitFor();
   for (const [name, value] of Object.entries({
     Name: "Demo Shopper", Email: "shopper@coop.test", Password: "shopper123",
-    "Member ID": "ANI-900", "Contact number": "09171234567",
+    "Member ID": "AMG-900", "Contact number": "09171234567",
   })) await field(name).fill(value);
   await button("Create account").press("Enter");
   await see("Your account is awaiting admin approval");
@@ -264,7 +264,7 @@ try {
   });
   await page.reload();
   await heading("My orders");
-  const order = (index) => page.getByRole("article").filter({ hasText: `ANI-TEST000${index}` });
+  const order = (index) => page.getByRole("article").filter({ hasText: `AMG-TEST000${index}` });
   const cancel = (index) => order(index).getByRole("button", { name: "Cancel Order", exact: true });
   await cancel(0).waitFor({ timeout: 5000 });
   await cancel(1).waitFor();

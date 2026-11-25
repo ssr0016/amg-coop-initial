@@ -271,7 +271,7 @@ export function OrderLines({ order }: { order: Order }) {
     <span>{item.name} × {item.quantity}</span><span>{money(orderTotal([item]))}</span>
   </li>)}</ul>;
 }
-export const orderCode = (id: string) => `ANI-${id.slice(0, 8).toUpperCase()}`;
+export const orderCode = (id: string) => `AMG-${id.slice(0, 8).toUpperCase()}`;
 export const orderDate = (date: string) => new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(new Date(date));
 
 export function History({ orders, instructions }: { orders: Order[]; instructions: string }) {

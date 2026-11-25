@@ -20,8 +20,8 @@ export const seed: Store = {
   catalogVersion: 2,
   users: [
     { id: "admin", name: "Co-op Admin", email: "admin@coop.test", password: "admin123", memberId: "", contact: "", role: "admin", status: "approved" },
-    { id: "member", name: "Mara Santos", email: "member@coop.test", password: "member123", memberId: "ANI-101", contact: "09170000001", role: "member", status: "approved" },
-    { id: "pending", name: "Paolo Reyes", email: "pending@coop.test", password: "pending123", memberId: "ANI-102", contact: "09170000002", role: "member", status: "pending" },
+    { id: "member", name: "Mara Santos", email: "member@coop.test", password: "member123", memberId: "AMG-101", contact: "09170000001", role: "member", status: "approved" },
+    { id: "pending", name: "Paolo Reyes", email: "pending@coop.test", password: "pending123", memberId: "AMG-102", contact: "09170000002", role: "member", status: "pending" },
   ],
   orders: [], carts: {}, session: null,
   settings: { paymentInstructions: "Pay the amount shown when your order arrives or directly to the cooperative admin. The admin will update your order after receiving payment." },
