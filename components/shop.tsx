@@ -438,6 +438,13 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
               )}
             </section>
           )}
+          {order.status === "cancelled" && (order.refund_note || order.refund_proof) && (
+            <section className="callout">
+              <h3 className="font-bold">Refund Confirmation</h3>
+              {order.refund_note && <p className="mt-2 whitespace-pre-wrap wrap-anywhere">{order.refund_note}</p>}
+              {order.refund_proof && <img className="return-photo mt-2" src={order.refund_proof} alt="Proof of refund provided by the admin" />}
+            </section>
+          )}
         </div>
       </details>
       {canRequestReturn(order) && <div>

@@ -48,6 +48,8 @@ export type Order = {
     previousStatus?: "paid" | "completed"; revision?: string;
   };
   returnResolution?: { note: string; photo?: string };
+  refund_note?: string;
+  refund_proof?: string;
 };
 export const canSubmitPaymentReference = (order: Order) =>
   order.paymentMethod === "cod" && (order.status === "pending_payment" || order.status === "confirmed");

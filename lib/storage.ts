@@ -315,14 +315,23 @@ export function updateOrder(
     throw new Error("The payment reference or account changed. Review it and try again.");
   }
   const payment_reference = editingReference ? newReference : order.payment_reference;
-  let returnResolution = order.returnResolution;
-  if (completingReplacement && resolution) {
-    const note = resolution.note.trim();
-    if (note.length > returnDetailsMaxLength) throw new Error("Enter up to 1,000 characters for the resolution note.");
-    validateReturnPhoto(resolution.photo);
-    returnResolution = { note, photo: resolution.photo };
+  const updated = { ...order, ...changes, status, payment_reference };
+  const note = resolution?.note.trim() ?? "";
+  const photo = resolution?.photo;
+  if (refundingReturn && (!note || !photo)) {
+    throw new Error("Enter a refund note and upload proof of refund.");
   }
-  saveOrderChange(store, order, { ...order, ...changes, status, payment_reference, returnResolution });
+  if ((completingReplacement || refundingReturn) && resolution) {
+    if (note.length > returnDetailsMaxLength) throw new Error("Enter up to 1,000 characters for the resolution note.");
+    validateReturnPhoto(photo);
+    if (refundingReturn) {
+      updated.refund_note = note;
+      updated.refund_proof = photo;
+    } else {
+      updated.returnResolution = { note, photo };
+    }
+  }
+  saveOrderChange(store, order, updated);
 }
 
 export function cancelOrder(id: string) {

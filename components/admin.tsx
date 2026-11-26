@@ -271,7 +271,7 @@ function Orders({ store }: { store: Store }) {
           onSave={(status, reference, notes, resolution, receivedReturn) => {
             const resolving = order.status === "return_requested" && status !== order.status;
             const message = resolving
-              ? status === "cancelled" ? "Return resolved and order cancelled." : "Replacement marked as completed."
+              ? status === "cancelled" ? "Refund confirmed and stock restored." : "Replacement marked as completed."
               : "Order updated.";
             run(() => {
               updateOrder(order, { status, payment_reference: reference, admin_notes: notes }, resolution, receivedReturn);
@@ -295,6 +295,7 @@ function OrderForm({ order, contact, saving, markingPaid, requestingReturn, reso
   const resolutionDialog = useRef<HTMLDialogElement>(null);
   const confirmResolution = useRef<(status: "cancelled" | "completed", receivedReturn: boolean, resolution?: Order["returnResolution"]) => void>(undefined);
   const [receivedReturn, setReceivedReturn] = useState(false);
+  const [refunding, setRefunding] = useState(false);
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<string>();
   const [readingPhoto, setReadingPhoto] = useState(false);
@@ -314,6 +315,7 @@ function OrderForm({ order, contact, saving, markingPaid, requestingReturn, reso
 
     const reader = new FileReader();
     reader.onloadend = () => {
+      if (!input.isConnected) return;
       setReadingPhoto(false);
       if (typeof reader.result === "string") setPhoto(reader.result);
       else {
@@ -325,11 +327,19 @@ function OrderForm({ order, contact, saving, markingPaid, requestingReturn, reso
     reader.readAsDataURL(file);
   }
 
+  function showRefundForm(show: boolean) {
+    setRefunding(show);
+    setNote("");
+    setPhoto(undefined);
+    setReadingPhoto(false);
+    setPhotoError("");
+  }
+
   function resolve(status: "cancelled" | "completed") {
-    if (!receivedReturn) return;
+    if (disabled || !receivedReturn || readingPhoto || (status === "cancelled" && (!note.trim() || !photo))) return;
     const confirm = confirmResolution.current;
     resolutionDialog.current?.close();
-    confirm?.(status, receivedReturn, status === "completed" ? { note, photo } : undefined);
+    confirm?.(status, receivedReturn, { note, photo });
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -399,29 +409,42 @@ function OrderForm({ order, contact, saving, markingPaid, requestingReturn, reso
           {resolving ? <PendingLabel>Resolving...</PendingLabel> : "Resolve Issue"}
         </button>}
       </div>
-      {hasOpenReturn && <dialog ref={resolutionDialog} className="panel order-dialog"
-        aria-labelledby="resolve-issue-title" aria-describedby="resolve-issue-warning resolve-issue-description"
-        onClose={() => { confirmResolution.current = undefined; }}>
-        <div className="stack">
-          <h2 id="resolve-issue-title">Resolve this issue?</h2>
-          <p id="resolve-issue-warning" className="callout error-text font-bold">
-            Only confirm this if you have physically received the returned item from the member.
-          </p>
-          <p id="resolve-issue-description" className="muted">A refund cancels the order and returns its item quantities to inventory. Completing a replacement closes the request and keeps current stock levels.</p>
-          <label>Resolution note for the member (optional)
-            <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={returnDetailsMaxLength} rows={3} />
+    </form>
+    {hasOpenReturn && <dialog ref={resolutionDialog} className="panel order-dialog"
+      aria-labelledby="resolve-issue-title" aria-describedby="resolve-issue-warning resolve-issue-description"
+      onClose={() => {
+        confirmResolution.current = undefined;
+        if (refunding) showRefundForm(false);
+      }}>
+      <form className="stack" onSubmit={(event) => {
+        event.preventDefault();
+        if (refunding) resolve("cancelled");
+      }}>
+        <h2 id="resolve-issue-title">{refunding ? "Confirm refund" : "Resolve this issue?"}</h2>
+        <p id="resolve-issue-warning" className="callout error-text font-bold">
+          Only confirm this if you have physically received the returned item from the member.
+        </p>
+        <p id="resolve-issue-description" className="muted">A refund cancels the order and returns its item quantities to inventory. Completing a replacement closes the request and keeps current stock levels.</p>
+        <label>{refunding ? "Refund Note for Member" : "Resolution note for the member (optional)"}
+          <textarea key={String(refunding)} autoFocus={refunding} required={refunding}
+            placeholder={refunding ? "Naibalik na po ang pera ninyo via GCash." : undefined}
+            value={note} onChange={(event) => setNote(event.target.value)} maxLength={returnDetailsMaxLength} rows={3} />
+        </label>
+        <div className="field">
+          <label>{refunding ? "Upload Proof of Refund" : "Replacement photo (optional)"}
+            <input key={String(refunding)} type="file" accept={returnPhotoTypes.join(",")} required={refunding} disabled={readingPhoto}
+              aria-describedby="resolution-photo-help" onChange={readPhoto} />
           </label>
-          <div className="field">
-            <label>Replacement photo (optional)
-              <input type="file" accept={returnPhotoTypes.join(",")} disabled={readingPhoto}
-                aria-describedby="replacement-photo-help" onChange={readPhoto} />
-            </label>
-            {photo && <img className="h-auto w-auto max-h-[150px] max-w-[min(150px,100%)] rounded-md"
-              src={photo} alt="Replacement photo preview" />}
-            <p id="replacement-photo-help" className="muted text-sm">JPEG, PNG, WebP, or GIF up to 512 KB.</p>
-            {readingPhoto && <p className="muted text-sm" role="status">Reading photo…</p>}
-            {photoError && <p className="callout error-text" role="alert">{photoError}</p>}
-          </div>
+          {photo && <img className="h-auto w-auto max-h-[150px] max-w-[min(150px,100%)] rounded-md"
+            src={photo} alt={refunding ? "Proof of refund preview" : "Replacement photo preview"} />}
+          <p id="resolution-photo-help" className="muted text-sm">{refunding && "Upload an image of the GCash or bank receipt. "}JPEG, PNG, WebP, or GIF up to 512 KB.</p>
+          {readingPhoto && <p className="muted text-sm" role="status">Reading photo…</p>}
+          {photoError && <p className="callout error-text" role="alert">{photoError}</p>}
+        </div>
+        {refunding ? <div className="row-actions justify-end">
+          <button type="button" className="button neutral" onClick={() => showRefundForm(false)}>Go back</button>
+          <button className="button danger" disabled={disabled || !receivedReturn || readingPhoto || !note.trim() || !photo}>Confirm Refund</button>
+        </div> : <>
           <div className="row-actions justify-end">
             <button type="button" className="button neutral" onClick={() => resolutionDialog.current?.close()}>Go back</button>
           </div>
@@ -430,12 +453,12 @@ function OrderForm({ order, contact, saving, markingPaid, requestingReturn, reso
             I have physically received the returned item.
           </label>
           <div className="row-actions justify-end">
-            <button type="button" className="button danger" disabled={disabled || !receivedReturn} onClick={() => resolve("cancelled")}>Refund &amp; Restock</button>
+            <button type="button" className="button danger" disabled={disabled || !receivedReturn || readingPhoto} onClick={() => showRefundForm(true)}>Refund &amp; Restock</button>
             <button type="button" className="button" disabled={disabled || !receivedReturn || readingPhoto} onClick={() => resolve("completed")}>Replacement Completed</button>
           </div>
-        </div>
-      </dialog>}
-    </form>
+        </>}
+      </form>
+    </dialog>}
   </>;
 }
 
