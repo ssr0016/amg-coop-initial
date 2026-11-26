@@ -8,7 +8,7 @@ import {
   ShoppingBasket, House, Backpack, Calculator, SoapDispenserDroplet, Gift, Pause, Play,
 } from "lucide-react";
 import {
-  canRequestReturn, canSubmitPaymentReference, money, nextStatuses, orderTotal, paymentTypeLabel, productCategories,
+  canRequestReturn, canSubmitPaymentReference, money, nextStatuses, orderTotal, paymentTypeLabel, preferredResolutionLabels, productCategories,
   returnDetailsMaxLength, returnPhotoMaxBytes, returnPhotoTypes, returnReasons,
   type Order, type Product, type Settings, type Store, type User,
 } from "../lib/models";
@@ -415,6 +415,10 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
       </p>}
       {order.payment_reference && <p className="muted text-sm wrap-anywhere">Payment reference: {order.payment_reference}
         {canSubmitPaymentReference(order) && " · Awaiting admin confirmation"}</p>}
+      {order.status === "return_requested" && order.returnRequest?.adminMessage && <div className="callout">
+        <p><strong>Admin requested you to return the item.</strong></p>
+        <p className="mt-2 whitespace-pre-wrap">{order.returnRequest.adminMessage}</p>
+      </div>}
       <details>
         <summary className="text-link order-summary">View order details</summary>
         <div className="stack mt-2">
@@ -505,7 +509,8 @@ function ReturnRequestForm({ order, onClose, onSaved }: { order: Order; onClose:
     if (readingPhoto) return;
     const form = new FormData(event.currentTarget);
     try {
-      requestReturn(order, String(form.get("reason") ?? ""), String(form.get("details") ?? ""), photo);
+      requestReturn(order, String(form.get("reason") ?? ""), String(form.get("preferredResolution") ?? ""),
+        String(form.get("details") ?? ""), photo);
     } catch (error) {
       setError(error instanceof Error && error.name !== "QuotaExceededError"
         ? error.message : "Could not save your request. Try removing the photo or choosing a smaller one.");
@@ -520,6 +525,13 @@ function ReturnRequestForm({ order, onClose, onSaved }: { order: Order; onClose:
       <select name="reason" defaultValue={order.returnRequest?.reason ?? ""} required>
         <option value="" disabled>Select a reason</option>
         {returnReasons.map((reason) => <option key={reason}>{reason}</option>)}
+      </select>
+    </label>
+    <label>Preferred Resolution
+      <select name="preferredResolution" defaultValue={order.returnRequest?.preferredResolution ?? ""} required>
+        <option value="" disabled>Select a preferred resolution</option>
+        {Object.entries(preferredResolutionLabels).map(([value, label]) =>
+          <option key={value} value={value}>{label}</option>)}
       </select>
     </label>
     <label>Additional details (optional)

@@ -206,6 +206,8 @@ button.text-link { min-height: 44px; font-size: .85rem; }
 .analytics [data-group="cancelled"] { background: #925448; }
 .field-grid { @apply grid grid-cols-1 sm:grid-cols-2; gap: .8rem 1rem; }
 .order-form { padding-top: .65rem; }
+.receipt-confirmation { grid-template-columns: auto 1fr; align-items: center; gap: .65rem; min-height: 44px; }
+.receipt-confirmation input { width: 1.25rem; min-height: 0; height: 1.25rem; }
 .notifications { position: fixed; z-index: 10; bottom: 1rem; right: 1rem; display: grid; justify-items: end; gap: .5rem; max-width: min(25rem, calc(100% - 2rem)); pointer-events: none; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: .6rem; min-height: 48px; width: max-content; max-width: 100%; color: white; border-radius: 8px; box-shadow: 0 4px 14px #15241944; padding: .2rem .3rem .2rem .85rem; pointer-events: auto; }
 .notice button { min-width: 44px; min-height: 44px; font-size: 1.5rem; }

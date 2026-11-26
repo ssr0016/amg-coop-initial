@@ -221,7 +221,7 @@ function memberReturnOrder(expected: Order) {
   return { store, order };
 }
 
-export function requestReturn(expected: Order, reason: string, details: string, photo?: string) {
+export function requestReturn(expected: Order, reason: string, preferredResolution: string, details: string, photo?: string) {
   const { store, order } = memberReturnOrder(expected);
   if (order.status !== "return_requested" && !canRequestReturn(order)) {
     throw new Error("This order can no longer accept a return request.");
@@ -229,6 +229,9 @@ export function requestReturn(expected: Order, reason: string, details: string, 
 
   const selectedReason = returnReasons.find((option) => option === reason);
   if (!selectedReason) throw new Error("Select a reason for the return request.");
+  if (preferredResolution !== "replacement" && preferredResolution !== "refund") {
+    throw new Error("Select a preferred resolution.");
+  }
   const trimmedDetails = details.trim();
   if (trimmedDetails.length > returnDetailsMaxLength) throw new Error("Enter up to 1,000 characters of details.");
 
@@ -236,7 +239,8 @@ export function requestReturn(expected: Order, reason: string, details: string, 
 
   saveOrderChange(store, order, {
     ...order, status: "return_requested", returnRequest: {
-      reason: selectedReason, details: trimmedDetails, photo, revision: crypto.randomUUID(),
+      reason: selectedReason, preferredResolution, details: trimmedDetails, photo, revision: crypto.randomUUID(),
+      adminMessage: order.returnRequest?.adminMessage,
       previousStatus: order.status === "paid" ? "paid" : order.returnRequest?.previousStatus ?? "completed",
     },
   });
@@ -260,9 +264,28 @@ export function cancelReturnRequest(expected: Order) {
   saveOrderChange(store, order, { ...order, status: order.returnRequest?.previousStatus ?? "completed", returnRequest: undefined });
 }
 
+export function requestItemReturn(expected: Order, message: string) {
+  const store = getStore();
+  requireRole(store, "admin");
+  const order = store.orders.find((item) => item.id === expected.id);
+  if (order?.status !== "return_requested" || !order.returnRequest ||
+      order.returnRequest.revision !== expected.returnRequest?.revision ||
+      order.returnRequest.adminMessage !== expected.returnRequest?.adminMessage) {
+    throw new Error("The return request changed. Review it before replying.");
+  }
+
+  const adminMessage = message.trim();
+  if (!adminMessage || adminMessage.length > returnDetailsMaxLength) {
+    throw new Error("Enter a return message of 1 to 1,000 characters.");
+  }
+  saveOrderChange(store, order, { ...order, returnRequest: { ...order.returnRequest, adminMessage } });
+}
+
 type OrderUpdate = Pick<Order, "status" | "payment_reference" | "admin_notes">;
 
-export function updateOrder(expected: Order, changes: Partial<OrderUpdate>, resolution?: Order["returnResolution"]) {
+export function updateOrder(
+  expected: Order, changes: Partial<OrderUpdate>, resolution?: Order["returnResolution"], receivedReturn = false,
+) {
   const store = getStore();
   requireRole(store, "admin");
   const order = store.orders.find((item) => item.id === expected.id);
@@ -273,9 +296,11 @@ export function updateOrder(expected: Order, changes: Partial<OrderUpdate>, reso
   const status = changes.status ?? order.status;
   const completingReplacement = order.status === "return_requested" && status === "completed";
   const refundingReturn = order.status === "return_requested" && status === "cancelled";
-  if ((completingReplacement || refundingReturn) &&
-      order.returnRequest?.revision !== expected.returnRequest?.revision) {
-    throw new Error("The member changed the return request. Review it before resolving the issue.");
+  if (completingReplacement || refundingReturn) {
+    if (order.returnRequest?.revision !== expected.returnRequest?.revision) {
+      throw new Error("The member changed the return request. Review it before resolving the issue.");
+    }
+    if (!receivedReturn) throw new Error("Confirm that you physically received the returned item.");
   }
   const markingPaid = status === "paid" && status !== order.status;
   const canMarkPaid = markingPaid && canSubmitPaymentReference(order) && Boolean(order.payment_reference);

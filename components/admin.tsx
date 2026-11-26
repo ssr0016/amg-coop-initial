@@ -6,10 +6,10 @@ import { ClipboardList, LayoutDashboard, Package, Settings as SettingsIcon, User
 import { downloadCsv } from "../lib/csv";
 import {
   canSubmitPaymentReference, money, nextStatuses, paymentQrMaxBytes, paymentQrTypes, paymentTypeLabel, productCategories, statuses, statusLabel,
-  returnDetailsMaxLength, returnPhotoMaxBytes, returnPhotoTypes,
+  preferredResolutionLabels, returnDetailsMaxLength, returnPhotoMaxBytes, returnPhotoTypes,
   type Order, type OrderStatus, type PaymentMethod, type Product, type Settings, type Store, type User,
 } from "../lib/models";
-import { completeOrder, deleteProduct, reviewMember, savePaymentSettings, saveProduct, updateOrder } from "../lib/storage";
+import { completeOrder, deleteProduct, requestItemReturn, reviewMember, savePaymentSettings, saveProduct, updateOrder } from "../lib/storage";
 import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
 import { Analytics } from "./analytics";
 import { orderCode, orderDate, OrderLines } from "./shop";
@@ -249,6 +249,7 @@ function Orders({ store }: { store: Store }) {
       const member = store.users.find((user) => user.id === order.userId);
       const completionKey = `complete:${order.id}`;
       const paymentKey = `pay:${order.id}`;
+      const returnRequestKey = `request-return:${order.id}`;
       const resolutionKey = `resolve:${order.id}`;
       return <article className="panel stack" key={order.id}>
         <div className="row">
@@ -265,13 +266,15 @@ function Orders({ store }: { store: Store }) {
         </div>
         {selected === order.id && <OrderForm key={`${order.id}-${order.status}`} order={order} contact={member?.contact}
           saving={pending === order.id} markingPaid={pending === paymentKey} resolving={pending === resolutionKey}
-          disabled={Boolean(pending)} onSave={(status, reference, notes, resolution) => {
+          requestingReturn={pending === returnRequestKey} disabled={Boolean(pending)}
+          onRequestReturn={(message) => run(() => requestItemReturn(order, message), "Return message sent to the member.", returnRequestKey)}
+          onSave={(status, reference, notes, resolution, receivedReturn) => {
             const resolving = order.status === "return_requested" && status !== order.status;
             const message = resolving
               ? status === "cancelled" ? "Return resolved and order cancelled." : "Replacement marked as completed."
               : "Order updated.";
             run(() => {
-              updateOrder(order, { status, payment_reference: reference, admin_notes: notes }, resolution);
+              updateOrder(order, { status, payment_reference: reference, admin_notes: notes }, resolution, receivedReturn);
               if (resolving) statusFilter.current?.focus({ preventScroll: true });
             }, message, resolving ? resolutionKey : order.id);
           }} onMarkPaid={() => run(() => updateOrder(order, { status: "paid" }), "Order marked as paid.", paymentKey)} />}
@@ -280,14 +283,18 @@ function Orders({ store }: { store: Store }) {
   </div>;
 }
 
-function OrderForm({ order, contact, saving, markingPaid, resolving, disabled, onSave, onMarkPaid }: {
+function OrderForm({ order, contact, saving, markingPaid, requestingReturn, resolving, disabled, onRequestReturn, onSave, onMarkPaid }: {
   order: Order; contact?: string; saving: boolean; markingPaid: boolean; resolving: boolean; disabled: boolean;
-  onSave: (status: OrderStatus, reference: string, notes: string, resolution?: Order["returnResolution"]) => void;
+  requestingReturn: boolean;
+  onRequestReturn: (message: string) => void;
+  onSave: (status: OrderStatus, reference: string, notes: string, resolution?: Order["returnResolution"], receivedReturn?: boolean) => void;
   onMarkPaid: () => void;
 }) {
   const hasOpenReturn = order.status === "return_requested";
+  const preferredResolution = order.returnRequest?.preferredResolution;
   const resolutionDialog = useRef<HTMLDialogElement>(null);
-  const confirmResolution = useRef<(status: "cancelled" | "completed", resolution?: Order["returnResolution"]) => void>(undefined);
+  const confirmResolution = useRef<(status: "cancelled" | "completed", receivedReturn: boolean, resolution?: Order["returnResolution"]) => void>(undefined);
+  const [receivedReturn, setReceivedReturn] = useState(false);
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<string>();
   const [readingPhoto, setReadingPhoto] = useState(false);
@@ -319,9 +326,10 @@ function OrderForm({ order, contact, saving, markingPaid, resolving, disabled, o
   }
 
   function resolve(status: "cancelled" | "completed") {
+    if (!receivedReturn) return;
     const confirm = confirmResolution.current;
     resolutionDialog.current?.close();
-    confirm?.(status, status === "completed" ? { note, photo } : undefined);
+    confirm?.(status, receivedReturn, status === "completed" ? { note, photo } : undefined);
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -330,75 +338,105 @@ function OrderForm({ order, contact, saving, markingPaid, resolving, disabled, o
     const reference = String(form.get("reference") ?? "").trim();
     const notes = String(form.get("notes") ?? "").trim();
     if (hasOpenReturn && form.has("resolve")) {
-      confirmResolution.current = (status, resolution) => onSave(status, reference, notes, resolution);
+      confirmResolution.current = (status, receivedReturn, resolution) => onSave(status, reference, notes, resolution, receivedReturn);
+      setReceivedReturn(false);
       resolutionDialog.current?.showModal();
       return;
     }
     onSave((form.get("status") as OrderStatus | null) ?? order.status, reference, notes);
   }
-  return <form className="stack order-form" onSubmit={submit}>
-    <OrderLines order={order} />
-    <p className="muted text-sm [overflow-wrap:anywhere]">Cash on Delivery / Pay to Admin{contact ? ` · ${contact}` : ""}</p>
-    {hasOpenReturn && order.returnRequest && <div className="callout">
-      <p><strong>{order.returnRequest.reason}</strong></p>
-      {order.returnRequest.details && <p className="mt-2 whitespace-pre-wrap">{order.returnRequest.details}</p>}
-      {order.returnRequest.photo && <img className="return-photo mt-2" src={order.returnRequest.photo} alt="Member’s return request photo" />}
-    </div>}
-    {(order.payment_reference || order.paymentAccount) && <div className="callout row">
+  return <>
+    <div className="stack order-form">
+      <OrderLines order={order} />
+      <p className="muted text-sm [overflow-wrap:anywhere]">Cash on Delivery / Pay to Admin{contact ? ` · ${contact}` : ""}</p>
+      {hasOpenReturn && order.returnRequest && <div className="callout">
+        <p><strong>{order.returnRequest.reason}</strong></p>
+        <p className="mt-2"><strong>Preferred Resolution</strong>{" · "}
+          {preferredResolution ? preferredResolutionLabels[preferredResolution] : "Not specified"}
+        </p>
+        {order.returnRequest.details && <p className="mt-2 whitespace-pre-wrap">{order.returnRequest.details}</p>}
+        {order.returnRequest.photo && <img className="return-photo mt-2" src={order.returnRequest.photo} alt="Member’s return request photo" />}
+      </div>}
+    </div>
+    {hasOpenReturn && order.returnRequest && <form className="stack" onSubmit={(event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      onRequestReturn(String(form.get("returnMessage") ?? ""));
+    }}>
+      <label>Return message to member
+        <textarea key={order.returnRequest.adminMessage} name="returnMessage" required maxLength={returnDetailsMaxLength} rows={3}
+          defaultValue={order.returnRequest.adminMessage ?? "Please return the item to the office first."} />
+      </label>
       <div>
-        {order.payment_reference && <p><strong>Ref No: {order.payment_reference}</strong></p>}
-        {order.paymentAccount && <p>
-          <strong>Paid to: {paymentTypeLabel(order.paymentAccount)} - {order.paymentAccount.accountName}</strong>
-          {" · "}{order.paymentAccount.accountNumber}
-        </p>}
-        {order.payment_reference && canSubmitPaymentReference(order) && <p className="text-sm">Verify the transfer before marking the order as paid.</p>}
+        <button className="button" disabled={disabled}>
+          {requestingReturn ? <PendingLabel>Sending...</PendingLabel> : "Request Return from Member"}
+        </button>
       </div>
-      {order.payment_reference && canSubmitPaymentReference(order) && <button type="button" className="button w-full sm:w-auto" disabled={disabled}
-        onClick={onMarkPaid}>{markingPaid ? <PendingLabel>Marking as paid…</PendingLabel> : "Mark as Paid"}</button>}
-    </div>}
-    <div className="field-grid">
-      {!hasOpenReturn && <div className="field"><label htmlFor="order-status">Order status</label><select id="order-status" name="status" defaultValue={order.status}>
-        {[order.status, ...nextStatuses[order.status]].map((item) => <option key={item} value={item}>{statusLabel[item]}</option>)}
-      </select></div>}
-      <label>Payment reference<input key={order.payment_reference} name="reference" defaultValue={order.payment_reference} maxLength={100} /></label>
-    </div>
-    <div className="field"><label htmlFor="order-notes">Admin notes</label><textarea id="order-notes" name="notes" defaultValue={order.admin_notes} maxLength={1000} rows={3} /></div>
-    <div className="row-actions">
-      <button className={`button${hasOpenReturn ? " secondary" : ""}`} disabled={disabled}>{saving ? <PendingLabel>Saving...</PendingLabel> : "Save order"}</button>
-      {hasOpenReturn && <button className="button" name="resolve" aria-haspopup="dialog" disabled={disabled}>
-        {resolving ? <PendingLabel>Resolving...</PendingLabel> : "Resolve Issue"}
-      </button>}
-    </div>
-    {hasOpenReturn && <dialog ref={resolutionDialog} className="panel order-dialog"
-      aria-labelledby="resolve-issue-title" aria-describedby="resolve-issue-description"
-      onClose={() => { confirmResolution.current = undefined; }}>
-      <div className="stack">
-        <h2 id="resolve-issue-title">Resolve this issue?</h2>
-        <p id="resolve-issue-description" className="muted">A refund cancels the order and returns its item quantities to inventory. Completing a replacement closes the request and keeps current stock levels.</p>
-        <label>Resolution note for the member (optional)
-          <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={returnDetailsMaxLength} rows={3} />
-        </label>
-        <div className="field">
-          <label>Replacement photo (optional)
-            <input type="file" accept={returnPhotoTypes.join(",")} disabled={readingPhoto}
-              aria-describedby="replacement-photo-help" onChange={readPhoto} />
+    </form>}
+    <form className="stack" onSubmit={submit}>
+      {(order.payment_reference || order.paymentAccount) && <div className="callout row">
+        <div>
+          {order.payment_reference && <p><strong>Ref No: {order.payment_reference}</strong></p>}
+          {order.paymentAccount && <p>
+            <strong>Paid to: {paymentTypeLabel(order.paymentAccount)} - {order.paymentAccount.accountName}</strong>
+            {" · "}{order.paymentAccount.accountNumber}
+          </p>}
+          {order.payment_reference && canSubmitPaymentReference(order) && <p className="text-sm">Verify the transfer before marking the order as paid.</p>}
+        </div>
+        {order.payment_reference && canSubmitPaymentReference(order) && <button type="button" className="button w-full sm:w-auto" disabled={disabled}
+          onClick={onMarkPaid}>{markingPaid ? <PendingLabel>Marking as paid…</PendingLabel> : "Mark as Paid"}</button>}
+      </div>}
+      <div className="field-grid">
+        {!hasOpenReturn && <div className="field"><label htmlFor="order-status">Order status</label><select id="order-status" name="status" defaultValue={order.status}>
+          {[order.status, ...nextStatuses[order.status]].map((item) => <option key={item} value={item}>{statusLabel[item]}</option>)}
+        </select></div>}
+        <label>Payment reference<input key={order.payment_reference} name="reference" defaultValue={order.payment_reference} maxLength={100} /></label>
+      </div>
+      <div className="field"><label htmlFor="order-notes">Admin notes</label><textarea id="order-notes" name="notes" defaultValue={order.admin_notes} maxLength={1000} rows={3} /></div>
+      <div className="row-actions">
+        <button className={`button${hasOpenReturn ? " secondary" : ""}`} disabled={disabled}>{saving ? <PendingLabel>Saving...</PendingLabel> : "Save order"}</button>
+        {hasOpenReturn && <button className="button" name="resolve" aria-haspopup="dialog" disabled={disabled}>
+          {resolving ? <PendingLabel>Resolving...</PendingLabel> : "Resolve Issue"}
+        </button>}
+      </div>
+      {hasOpenReturn && <dialog ref={resolutionDialog} className="panel order-dialog"
+        aria-labelledby="resolve-issue-title" aria-describedby="resolve-issue-warning resolve-issue-description"
+        onClose={() => { confirmResolution.current = undefined; }}>
+        <div className="stack">
+          <h2 id="resolve-issue-title">Resolve this issue?</h2>
+          <p id="resolve-issue-warning" className="callout error-text font-bold">
+            Only confirm this if you have physically received the returned item from the member.
+          </p>
+          <p id="resolve-issue-description" className="muted">A refund cancels the order and returns its item quantities to inventory. Completing a replacement closes the request and keeps current stock levels.</p>
+          <label>Resolution note for the member (optional)
+            <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={returnDetailsMaxLength} rows={3} />
           </label>
-          {photo && <img className="h-auto w-auto max-h-[150px] max-w-[min(150px,100%)] rounded-md"
-            src={photo} alt="Replacement photo preview" />}
-          <p id="replacement-photo-help" className="muted text-sm">JPEG, PNG, WebP, or GIF up to 512 KB.</p>
-          {readingPhoto && <p className="muted text-sm" role="status">Reading photo…</p>}
-          {photoError && <p className="callout error-text" role="alert">{photoError}</p>}
+          <div className="field">
+            <label>Replacement photo (optional)
+              <input type="file" accept={returnPhotoTypes.join(",")} disabled={readingPhoto}
+                aria-describedby="replacement-photo-help" onChange={readPhoto} />
+            </label>
+            {photo && <img className="h-auto w-auto max-h-[150px] max-w-[min(150px,100%)] rounded-md"
+              src={photo} alt="Replacement photo preview" />}
+            <p id="replacement-photo-help" className="muted text-sm">JPEG, PNG, WebP, or GIF up to 512 KB.</p>
+            {readingPhoto && <p className="muted text-sm" role="status">Reading photo…</p>}
+            {photoError && <p className="callout error-text" role="alert">{photoError}</p>}
+          </div>
+          <div className="row-actions justify-end">
+            <button type="button" className="button neutral" onClick={() => resolutionDialog.current?.close()}>Go back</button>
+          </div>
+          <label className="receipt-confirmation">
+            <input type="checkbox" checked={receivedReturn} onChange={(event) => setReceivedReturn(event.target.checked)} />
+            I have physically received the returned item.
+          </label>
+          <div className="row-actions justify-end">
+            <button type="button" className="button danger" disabled={disabled || !receivedReturn} onClick={() => resolve("cancelled")}>Refund &amp; Restock</button>
+            <button type="button" className="button" disabled={disabled || !receivedReturn || readingPhoto} onClick={() => resolve("completed")}>Replacement Completed</button>
+          </div>
         </div>
-        <div className="row-actions justify-end">
-          <button type="button" className="button neutral" onClick={() => resolutionDialog.current?.close()}>Go back</button>
-        </div>
-        <div className="row-actions justify-end">
-          <button type="button" className="button danger" disabled={disabled} onClick={() => resolve("cancelled")}>Refund &amp; Restock</button>
-          <button type="button" className="button" disabled={disabled || readingPhoto} onClick={() => resolve("completed")}>Replacement Completed</button>
-        </div>
-      </div>
-    </dialog>}
-  </form>;
+      </dialog>}
+    </form>
+  </>;
 }
 
 function PaymentSettings({ settings }: { settings: Settings }) {

@@ -28,6 +28,10 @@ export const nextStatuses: Record<OrderStatus, OrderStatus[]> = {
 };
 
 export const returnReasons = ["Damaged item", "Wrong item received", "Missing item"] as const;
+export const preferredResolutionLabels = {
+  replacement: "Replacement (Palitan)",
+  refund: "Refund (Ibalik ang pera)",
+};
 export const returnDetailsMaxLength = 1000;
 export const returnPhotoMaxBytes = 512 * 1024;
 export const returnPhotoTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -39,6 +43,8 @@ export type Order = {
   paymentAccount?: PaymentAccount;
   returnRequest?: {
     reason: typeof returnReasons[number]; details: string; photo?: string;
+    preferredResolution?: keyof typeof preferredResolutionLabels;
+    adminMessage?: string;
     previousStatus?: "paid" | "completed"; revision?: string;
   };
   returnResolution?: { note: string; photo?: string };
