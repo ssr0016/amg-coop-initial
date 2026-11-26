@@ -3,13 +3,13 @@ import { Empty } from "./shared";
 
 const number = new Intl.NumberFormat("en-PH");
 const percent = new Intl.NumberFormat("en-PH", { style: "percent", maximumFractionDigits: 1 });
-const orderGroups = ["pending", "paid", "completed", "cancelled"] as const;
+const orderGroups = ["pending", "paid", "completed", "return_requested", "cancelled"] as const;
 
 export function Analytics({ orders, salesOrders, products }: Pick<Store, "orders" | "products"> & { salesOrders: Store["orders"] }) {
   const catalog = new Map(products.map(({ id, category }) => [id, category]));
   const categorySales = new Map<string, number>(productCategories.map((category) => [category, 0]));
   const productSales = new Map<string, { name: string; quantity: number }>();
-  const counts = { pending: 0, paid: 0, completed: 0, cancelled: 0 };
+  const counts = { pending: 0, paid: 0, completed: 0, return_requested: 0, cancelled: 0 };
   let uncategorized = 0;
 
   for (const { status } of orders) {
@@ -33,7 +33,7 @@ export function Analytics({ orders, salesOrders, products }: Pick<Store, "orders
   const topProducts = [...productSales].sort(([, a], [, b]) => b.quantity - a.quantity || a.name.localeCompare(b.name)).slice(0, 3);
   const largestCategory = Math.max(1, ...categorySales.values());
   const breakdown = orderGroups
-    .filter((group) => group !== "cancelled" || counts.cancelled > 0)
+    .filter((group) => (group !== "cancelled" && group !== "return_requested") || counts[group] > 0)
     .map((group) => ({
       group,
       label: group === "pending" ? "Pending" : statusLabel[group],
@@ -45,7 +45,7 @@ export function Analytics({ orders, salesOrders, products }: Pick<Store, "orders
     {topProducts.length ? <div className="analytics-grid grid grid-cols-1 gap-3.5 xl:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
       <section className="panel" aria-labelledby="category-sales-heading">
         <h3 id="category-sales-heading">Sales by Category</h3>
-        <p className="muted text-sm">Units sold · Paid and completed orders</p>
+        <p className="muted text-sm">Units sold · Includes open return requests</p>
         <ul className="category-sales" role="list">
           {[...categorySales].map(([category, quantity]) => <li key={category}>
             <span>{category}</span>
@@ -67,7 +67,7 @@ export function Analytics({ orders, salesOrders, products }: Pick<Store, "orders
           </li>)}
         </ol>
       </section>
-    </div> : <Empty>No paid or completed sales in this period.</Empty>}
+    </div> : <Empty>No sales in this period.</Empty>}
     {orders.length > 0 && <section className="panel" aria-labelledby="order-breakdown-heading">
       <h3 id="order-breakdown-heading">Order Status Breakdown</h3>
       <div className="order-breakdown-bar" aria-hidden="true">

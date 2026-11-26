@@ -20,7 +20,7 @@ export function Market({ path }: { path: string }) {
   const user = snapshot ? currentUser(store) : undefined;
   const memberOrders = user?.role === "member" ? store.orders.filter((order) => order.userId === user.id) : [];
   const activeOrderCount = memberOrders.filter(({ status }) =>
-    status === "pending_payment" || status === "confirmed" || status === "paid").length;
+    status === "pending_payment" || status === "confirmed" || status === "paid" || status === "return_requested").length;
   const cartCount = Object.values(user ? store.carts[user.id] ?? {} : {}).reduce((sum, count) => sum + count, 0);
   const { pending, run } = usePendingAction();
   const signedOut = useRef(false);

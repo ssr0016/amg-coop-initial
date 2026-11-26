@@ -28,7 +28,7 @@ type SalesPeriod = "all" | "month" | "week";
 const manilaOffsetMs = 8 * 60 * 60 * 1000;
 
 function salesInPeriod(orders: Order[], period: SalesPeriod) {
-  const sales = orders.filter(({ status }) => status === "paid" || status === "completed");
+  const sales = orders.filter(({ status }) => status === "paid" || status === "completed" || status === "return_requested");
   if (period === "all") return sales;
 
   const now = Date.now();
@@ -232,6 +232,7 @@ function Orders({ store }: { store: Store }) {
   const { pending, run } = usePendingAction();
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<string>();
+  const statusFilter = useRef<HTMLSelectElement>(null);
   const shown = store.orders.filter((order) => !filter || order.status === filter);
   return <div className="stack mt-6">
     <div><button type="button" className="button secondary w-full sm:w-auto" onClick={() => act(() => downloadCsv("orders.csv",
@@ -240,13 +241,14 @@ function Orders({ store }: { store: Store }) {
         store.users.find((user) => user.id === order.userId)?.name, order.total, order.status, order.payment_reference])), exportMessage)}>
       Export Orders (CSV)
     </button></div>
-    <div className="field sm:max-w-xs"><label htmlFor="status-filter">Filter by status</label><select id="status-filter" value={filter} onChange={(event) => { setFilter(event.target.value); setSelected(undefined); }}>
+    <div className="field sm:max-w-xs"><label htmlFor="status-filter">Filter by status</label><select ref={statusFilter} id="status-filter" value={filter} onChange={(event) => { setFilter(event.target.value); setSelected(undefined); }}>
       <option value="">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{statusLabel[item]}</option>)}
     </select></div>
     {shown.length ? shown.map((order) => {
       const member = store.users.find((user) => user.id === order.userId);
       const completionKey = `complete:${order.id}`;
       const paymentKey = `pay:${order.id}`;
+      const resolutionKey = `resolve:${order.id}`;
       return <article className="panel stack" key={order.id}>
         <div className="row">
           <div><h2>{orderCode(order.id)}</h2><p className="muted text-sm">{member?.name ?? "Member"} · {orderDate(order.createdAt)}</p><p>{money(order.total)}</p></div>
@@ -261,28 +263,57 @@ function Orders({ store }: { store: Store }) {
           </div>
         </div>
         {selected === order.id && <OrderForm key={`${order.id}-${order.status}`} order={order} contact={member?.contact}
-          saving={pending === order.id} markingPaid={pending === paymentKey} disabled={Boolean(pending)} onSave={(status, reference, notes) => run(
-            () => updateOrder(order, { status, payment_reference: reference, admin_notes: notes }), "Order updated.", order.id
-          )} onMarkPaid={() => run(() => updateOrder(order, { status: "paid" }), "Order marked as paid.", paymentKey)} />}
+          saving={pending === order.id} markingPaid={pending === paymentKey} resolving={pending === resolutionKey}
+          disabled={Boolean(pending)} onSave={(status, reference, notes) => {
+            const resolving = order.status === "return_requested" && status !== order.status;
+            const message = resolving
+              ? status === "cancelled" ? "Return resolved and order cancelled." : "Replacement marked as completed."
+              : "Order updated.";
+            run(() => {
+              updateOrder(order, { status, payment_reference: reference, admin_notes: notes });
+              if (resolving) statusFilter.current?.focus({ preventScroll: true });
+            }, message, resolving ? resolutionKey : order.id);
+          }} onMarkPaid={() => run(() => updateOrder(order, { status: "paid" }), "Order marked as paid.", paymentKey)} />}
       </article>;
     }) : <Empty>{filter ? "No orders match this status." : "No orders have been placed yet."}</Empty>}
   </div>;
 }
 
-function OrderForm({ order, contact, saving, markingPaid, disabled, onSave, onMarkPaid }: {
-  order: Order; contact?: string; saving: boolean; markingPaid: boolean; disabled: boolean;
+function OrderForm({ order, contact, saving, markingPaid, resolving, disabled, onSave, onMarkPaid }: {
+  order: Order; contact?: string; saving: boolean; markingPaid: boolean; resolving: boolean; disabled: boolean;
   onSave: (status: OrderStatus, reference: string, notes: string) => void;
   onMarkPaid: () => void;
 }) {
+  const hasOpenReturn = order.status === "return_requested";
+  const resolutionDialog = useRef<HTMLDialogElement>(null);
+  const confirmResolution = useRef<(status: "cancelled" | "completed") => void>(undefined);
+
+  function resolve(status: "cancelled" | "completed") {
+    const confirm = confirmResolution.current;
+    resolutionDialog.current?.close();
+    confirm?.(status);
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const status = form.get("status") as OrderStatus;
-    onSave(status, String(form.get("reference") ?? "").trim(), String(form.get("notes") ?? "").trim());
+    const form = new FormData(event.currentTarget, (event.nativeEvent as SubmitEvent).submitter);
+    const reference = String(form.get("reference") ?? "").trim();
+    const notes = String(form.get("notes") ?? "").trim();
+    if (hasOpenReturn && form.has("resolve")) {
+      confirmResolution.current = (status) => onSave(status, reference, notes);
+      resolutionDialog.current?.showModal();
+      return;
+    }
+    onSave((form.get("status") as OrderStatus | null) ?? order.status, reference, notes);
   }
   return <form className="stack order-form" onSubmit={submit}>
     <OrderLines order={order} />
     <p className="muted text-sm [overflow-wrap:anywhere]">Cash on Delivery / Pay to Admin{contact ? ` · ${contact}` : ""}</p>
+    {hasOpenReturn && order.returnRequest && <div className="callout">
+      <p><strong>{order.returnRequest.reason}</strong></p>
+      {order.returnRequest.details && <p className="mt-2 whitespace-pre-wrap">{order.returnRequest.details}</p>}
+      {order.returnRequest.photo && <img className="return-photo mt-2" src={order.returnRequest.photo} alt="Member’s return request photo" />}
+    </div>}
     {(order.payment_reference || order.paymentAccount) && <div className="callout row">
       <div>
         {order.payment_reference && <p><strong>Ref No: {order.payment_reference}</strong></p>}
@@ -296,13 +327,33 @@ function OrderForm({ order, contact, saving, markingPaid, disabled, onSave, onMa
         onClick={onMarkPaid}>{markingPaid ? <PendingLabel>Marking as paid…</PendingLabel> : "Mark as Paid"}</button>}
     </div>}
     <div className="field-grid">
-      <div className="field"><label htmlFor="order-status">Order status</label><select id="order-status" name="status" defaultValue={order.status}>
+      {!hasOpenReturn && <div className="field"><label htmlFor="order-status">Order status</label><select id="order-status" name="status" defaultValue={order.status}>
         {[order.status, ...nextStatuses[order.status]].map((item) => <option key={item} value={item}>{statusLabel[item]}</option>)}
-      </select></div>
+      </select></div>}
       <label>Payment reference<input key={order.payment_reference} name="reference" defaultValue={order.payment_reference} maxLength={100} /></label>
     </div>
     <div className="field"><label htmlFor="order-notes">Admin notes</label><textarea id="order-notes" name="notes" defaultValue={order.admin_notes} maxLength={1000} rows={3} /></div>
-    <div><button className="button w-full sm:w-auto" disabled={disabled}>{saving ? <PendingLabel>Saving...</PendingLabel> : "Save order"}</button></div>
+    <div className="row-actions">
+      <button className={`button${hasOpenReturn ? " secondary" : ""}`} disabled={disabled}>{saving ? <PendingLabel>Saving...</PendingLabel> : "Save order"}</button>
+      {hasOpenReturn && <button className="button" name="resolve" aria-haspopup="dialog" disabled={disabled}>
+        {resolving ? <PendingLabel>Resolving...</PendingLabel> : "Resolve Issue"}
+      </button>}
+    </div>
+    {hasOpenReturn && <dialog ref={resolutionDialog} className="panel order-dialog"
+      aria-labelledby="resolve-issue-title" aria-describedby="resolve-issue-description"
+      onClose={() => { confirmResolution.current = undefined; }}>
+      <div className="stack">
+        <h2 id="resolve-issue-title">Resolve this issue?</h2>
+        <p id="resolve-issue-description" className="muted">A refund cancels the order and returns its item quantities to inventory. Completing a replacement closes the request and keeps current stock levels.</p>
+        <div className="row-actions justify-end">
+          <button type="button" className="button neutral" onClick={() => resolutionDialog.current?.close()}>Go back</button>
+        </div>
+        <div className="row-actions justify-end">
+          <button type="button" className="button danger" disabled={disabled} onClick={() => resolve("cancelled")}>Refund &amp; Restock</button>
+          <button type="button" className="button" disabled={disabled} onClick={() => resolve("completed")}>Replacement Completed</button>
+        </div>
+      </div>
+    </dialog>}
   </form>;
 }
 

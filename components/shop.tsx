@@ -2,16 +2,17 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
   ArrowDown, ArrowRight, ArrowLeft, Search, ShoppingBag, Truck, Sprout, Package, Plus,
   ShoppingBasket, House, Backpack, Calculator, SoapDispenserDroplet, Gift, Pause, Play,
 } from "lucide-react";
 import {
-  canSubmitPaymentReference, money, nextStatuses, orderTotal, paymentTypeLabel, productCategories,
+  canRequestReturn, canSubmitPaymentReference, money, nextStatuses, orderTotal, paymentTypeLabel, productCategories,
+  returnDetailsMaxLength, returnPhotoMaxBytes, returnPhotoTypes, returnReasons,
   type Order, type Product, type Settings, type Store, type User,
 } from "../lib/models";
-import { cancelOrder, checkout, completeOrder, setQuantity, submitPaymentReference } from "../lib/storage";
+import { cancelOrder, cancelReturnRequest, checkout, completeOrder, requestReturn, setQuantity, submitPaymentReference } from "../lib/storage";
 import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
 
 const categories = ["All", ...productCategories];
@@ -370,8 +371,9 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
   const { pending, run } = usePendingAction();
   const heading = useRef<HTMLHeadingElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  const [confirmation, setConfirmation] = useState<{ id: string; action: "receive" | "cancel" }>();
+  const [confirmation, setConfirmation] = useState<{ order: Order; action: "receive" | "cancel" | "report" | "cancel-request" }>();
   const receiving = confirmation?.action === "receive";
+  const cancellingRequest = confirmation?.action === "cancel-request";
 
   useEffect(() => {
     if (confirmation) dialog.current?.showModal();
@@ -379,16 +381,17 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
 
   function confirmOrderAction() {
     if (!confirmation) return;
-    const { id } = confirmation;
+    const { order } = confirmation;
     run(() => {
       try {
-        if (receiving) completeOrder(id);
-        else cancelOrder(id);
+        if (receiving) completeOrder(order.id);
+        else if (cancellingRequest) cancelReturnRequest(order);
+        else cancelOrder(order.id);
       } finally {
         dialog.current?.close();
         heading.current?.focus({ preventScroll: true });
       }
-    }, receiving ? "Order marked as completed." : "Order cancelled successfully.");
+    }, receiving ? "Order marked as completed." : cancellingRequest ? "Return request cancelled." : "Order cancelled successfully.");
   }
 
   return <section className="wrap inner">
@@ -401,9 +404,9 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
           <Status value={order.status} />
           {canSubmitPaymentReference(order) && <Link className="button secondary" href={`${paymentDetailsPath}/${order.id}`}>View Payment Details</Link>}
           {order.status === "paid" && <button type="button" className="button" aria-haspopup="dialog"
-            onClick={() => setConfirmation({ id: order.id, action: "receive" })}>Order Received</button>}
+            onClick={() => setConfirmation({ order, action: "receive" })}>Order Received</button>}
           {nextStatuses[order.status].includes("cancelled") && <button type="button" className="button secondary" aria-haspopup="dialog"
-            onClick={() => setConfirmation({ id: order.id, action: "cancel" })}>Cancel Order</button>}
+            onClick={() => setConfirmation({ order, action: "cancel" })}>Cancel Order</button>}
         </div>
       </div>
       {order.items[0] && <p className="muted text-sm wrap-anywhere">
@@ -424,24 +427,112 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
           </div>
         </div>
       </details>
+      {canRequestReturn(order) && <div>
+        <button type="button" className="text-link underline" aria-haspopup="dialog"
+          onClick={() => setConfirmation({ order, action: "report" })}>Report an issue</button>
+      </div>}
+      {order.status === "return_requested" && <div className="row-actions">
+        <button type="button" className="button secondary" aria-haspopup="dialog"
+          onClick={() => setConfirmation({ order, action: "report" })}>Edit Request</button>
+        <button type="button" className="button neutral" aria-haspopup="dialog"
+          onClick={() => setConfirmation({ order, action: "cancel-request" })}>Cancel Request</button>
+      </div>}
     </article>) : <Empty action={<Link className="button" href="/#catalog">Browse products</Link>}>You haven’t placed any orders yet.</Empty>}</div>
     <dialog ref={dialog} aria-labelledby="order-action-title" aria-describedby="order-action-description"
-      className="panel fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-md max-h-[calc(100%_-_2rem)] overflow-y-auto shadow-xl backdrop:bg-black/55"
+      className="panel order-dialog"
       onCancel={(event) => { if (pending) event.preventDefault(); }}
       onClose={() => setConfirmation(undefined)}>
-      <div className="stack">
-        <h2 id="order-action-title">{receiving ? "Order received?" : "Cancel Order?"}</h2>
+      {confirmation?.action === "report" ? <ReturnRequestForm order={confirmation.order}
+        onClose={() => dialog.current?.close()} onSaved={() => {
+          dialog.current?.close();
+          heading.current?.focus({ preventScroll: true });
+        }} /> : <div className="stack">
+        <h2 id="order-action-title">{receiving ? "Order received?" : cancellingRequest ? "Cancel return request?" : "Cancel Order?"}</h2>
         <p id="order-action-description" className="muted">{receiving
           ? "Confirm that you received your order. This will mark it as completed."
-          : "Are you sure you want to cancel this order? This action cannot be undone."}</p>
+          : cancellingRequest ? "This will withdraw your request and restore the order’s previous status."
+            : "Are you sure you want to cancel this order? This action cannot be undone."}</p>
         <div className="row-actions justify-end">
           <button type="button" className="button neutral" disabled={Boolean(pending)}
-            onClick={() => dialog.current?.close()}>{receiving ? "Go back" : "Keep Order"}</button>
+            onClick={() => dialog.current?.close()}>{receiving ? "Go back" : cancellingRequest ? "Keep Request" : "Keep Order"}</button>
           <button type="button" className={receiving ? "button" : "button danger"} disabled={Boolean(pending)} onClick={confirmOrderAction}>
-            {pending ? <PendingLabel>Processing...</PendingLabel> : receiving ? "Confirm Receipt" : "Yes, Cancel"}
+            {pending ? <PendingLabel>Processing...</PendingLabel> : receiving ? "Confirm Receipt" : cancellingRequest ? "Cancel Request" : "Yes, Cancel"}
           </button>
         </div>
-      </div>
+      </div>}
     </dialog>
   </section>;
+}
+
+function ReturnRequestForm({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
+  const act = useAction();
+  const editing = order.status === "return_requested";
+  const [photo, setPhoto] = useState(order.returnRequest?.photo);
+  const [readingPhoto, setReadingPhoto] = useState(false);
+  const [error, setError] = useState("");
+
+  function readPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    if (!returnPhotoTypes.includes(file.type) || !file.size || file.size > returnPhotoMaxBytes) {
+      setError("Choose a JPEG, PNG, WebP, or GIF image up to 512 KB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setReadingPhoto(false);
+      if (typeof reader.result === "string") setPhoto(reader.result);
+      else setError("Could not read this photo. Choose another file.");
+    };
+    setError("");
+    setReadingPhoto(true);
+    reader.readAsDataURL(file);
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (readingPhoto) return;
+    const form = new FormData(event.currentTarget);
+    try {
+      requestReturn(order, String(form.get("reason") ?? ""), String(form.get("details") ?? ""), photo);
+    } catch (error) {
+      setError(error instanceof Error && error.name !== "QuotaExceededError"
+        ? error.message : "Could not save your request. Try removing the photo or choosing a smaller one.");
+      return;
+    }
+    act(onSaved, editing ? "Return request updated." : "Return request submitted. Admin will contact you shortly.");
+  }
+
+  return <form className="stack" onSubmit={submit}>
+    <h2 id="order-action-title">{editing ? "Edit return request" : "Report an issue"}</h2>
+    <label>Reason
+      <select name="reason" defaultValue={order.returnRequest?.reason ?? ""} required>
+        <option value="" disabled>Select a reason</option>
+        {returnReasons.map((reason) => <option key={reason}>{reason}</option>)}
+      </select>
+    </label>
+    <label>Additional details (optional)
+      <textarea name="details" defaultValue={order.returnRequest?.details} maxLength={returnDetailsMaxLength} rows={3} />
+    </label>
+    <div className="field">
+      <label>{photo ? "Replace photo" : "Photo (optional)"}
+        <input type="file" accept={returnPhotoTypes.join(",")} disabled={readingPhoto}
+          aria-describedby="order-action-description" onChange={readPhoto} />
+      </label>
+      <p className="muted text-sm" id="order-action-description">JPEG, PNG, WebP, or GIF up to 512 KB.</p>
+      {readingPhoto && <p className="muted text-sm" role="status">Reading photo…</p>}
+      {photo && <div className="field">
+        <img className="return-photo" src={photo} alt="Attached return request photo" />
+        <div><button type="button" className="text-link underline" disabled={readingPhoto}
+          onClick={() => { setPhoto(undefined); setError(""); }}>Remove photo</button></div>
+      </div>}
+    </div>
+    {error && <p className="callout error-text" role="alert">{error}</p>}
+    <div className="row-actions justify-end">
+      <button type="button" className="button neutral" onClick={onClose}>Go back</button>
+      <button className="button" disabled={readingPhoto}>{editing ? "Save changes" : "Submit return request"}</button>
+    </div>
+  </form>;
 }

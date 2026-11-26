@@ -160,6 +160,9 @@ button.text-link { min-height: 44px; font-size: .85rem; }
 .row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .75rem 1.3rem; }
 .row > div:first-child { min-width: 0; overflow-wrap: anywhere; }
 .order-summary { min-height: 44px; padding-block: .65rem; cursor: pointer; }
+.order-dialog { @apply fixed inset-0 m-auto shadow-xl; width: min(28rem, calc(100% - 2rem)); max-height: calc(100% - 2rem); overflow-y: auto; }
+.order-dialog::backdrop { background: rgb(0 0 0 / 55%); }
+.return-photo { max-width: 100%; max-height: 16rem; border-radius: 7px; object-fit: contain; }
 .order-lines { display: grid; gap: .65rem; }
 .order-lines li span:first-child { overflow-wrap: anywhere; }
 .order-lines li span:last-child { min-width: 0; overflow-wrap: anywhere; text-align: right; }
@@ -168,6 +171,7 @@ button.text-link { min-height: 44px; font-size: .85rem; }
 .status-paid { border: 1px solid currentColor; background: transparent; color: var(--green); }
 .status-completed { align-items: center; gap: .3rem; background: var(--green); color: var(--white); }
 .status-confirmed { background: #e2edf3; color: #264f66; }
+.status-return_requested { background: #eee4f7; color: #593579; }
 .status-cancelled, .member-rejected { background: #f5e2dc; color: #813425; }
 .admin-wrap { padding-block: 26px 70px; gap: 1.7rem; min-height: 66vh; }
 .admin-menu-label { margin: 0 0 .65rem .7rem; }
@@ -198,6 +202,7 @@ button.text-link { min-height: 44px; font-size: .85rem; }
 .analytics [data-group="pending"] { background: #a76a26; }
 .analytics [data-group="paid"] { background: #4e768c; }
 .analytics [data-group="completed"] { background: var(--green); }
+.analytics [data-group="return_requested"] { background: #593579; }
 .analytics [data-group="cancelled"] { background: #925448; }
 .field-grid { @apply grid grid-cols-1 sm:grid-cols-2; gap: .8rem 1rem; }
 .order-form { padding-top: .65rem; }

@@ -1,5 +1,6 @@
 import {
-  canSubmitPaymentReference, nextStatuses, orderTotal, paymentQrMaxBytes, paymentQrTypes, productCategories,
+  canRequestReturn, canSubmitPaymentReference, nextStatuses, orderTotal, paymentQrMaxBytes, paymentQrTypes, productCategories,
+  returnDetailsMaxLength, returnPhotoMaxBytes, returnPhotoTypes, returnReasons,
   type Order, type PaymentMethod, type Product, type Settings, type Store, type User,
 } from "./models";
 import { seed } from "./seed";
@@ -210,6 +211,51 @@ export function submitPaymentReference(id: string, accountId: string, reference:
   });
 }
 
+function memberReturnOrder(expected: Order) {
+  const store = getStore();
+  const user = requireRole(store, "member");
+  const order = store.orders.find((item) => item.id === expected.id && item.userId === user.id);
+  if (!order || order.status !== expected.status || order.returnRequest?.revision !== expected.returnRequest?.revision) {
+    throw new Error("The order or return request changed. Reopen the order and try again.");
+  }
+  return { store, order };
+}
+
+export function requestReturn(expected: Order, reason: string, details: string, photo?: string) {
+  const { store, order } = memberReturnOrder(expected);
+  if (order.status !== "return_requested" && !canRequestReturn(order)) {
+    throw new Error("This order can no longer accept a return request.");
+  }
+
+  const selectedReason = returnReasons.find((option) => option === reason);
+  if (!selectedReason) throw new Error("Select a reason for the return request.");
+  const trimmedDetails = details.trim();
+  if (trimmedDetails.length > returnDetailsMaxLength) throw new Error("Enter up to 1,000 characters of details.");
+
+  if (photo) {
+    const invalidPhoto = "Choose a JPEG, PNG, WebP, or GIF image up to 512 KB.";
+    const [format, content, extra] = photo.split(",", 3);
+    if (!returnPhotoTypes.some((type) => format === `data:${type};base64`) || !content ||
+        content.length % 4 !== 0 || content.length > Math.ceil(returnPhotoMaxBytes / 3) * 4 ||
+        extra !== undefined || !/^[A-Za-z0-9+/]+={0,2}$/.test(content) ||
+        atob(content).length > returnPhotoMaxBytes) throw new Error(invalidPhoto);
+  }
+
+  saveOrderChange(store, order, {
+    ...order, status: "return_requested", returnRequest: {
+      reason: selectedReason, details: trimmedDetails, photo, revision: crypto.randomUUID(),
+      previousStatus: order.status === "paid" ? "paid" : order.returnRequest?.previousStatus ?? "completed",
+    },
+  });
+}
+
+export function cancelReturnRequest(expected: Order) {
+  const { store, order } = memberReturnOrder(expected);
+  if (order.status !== "return_requested") throw new Error("This return request is no longer open.");
+  // Older requests did not record the previous status.
+  saveOrderChange(store, order, { ...order, status: order.returnRequest?.previousStatus ?? "completed", returnRequest: undefined });
+}
+
 type OrderUpdate = Pick<Order, "status" | "payment_reference" | "admin_notes">;
 
 export function updateOrder(expected: Order, changes: Partial<OrderUpdate>) {
@@ -221,9 +267,14 @@ export function updateOrder(expected: Order, changes: Partial<OrderUpdate>) {
   }
 
   const status = changes.status ?? order.status;
+  const refundingReturn = order.status === "return_requested" && status === "cancelled";
+  if (order.status === "return_requested" && (status === "completed" || refundingReturn) &&
+      order.returnRequest?.revision !== expected.returnRequest?.revision) {
+    throw new Error("The member changed the return request. Review it before resolving the issue.");
+  }
   const markingPaid = status === "paid" && status !== order.status;
   const canMarkPaid = markingPaid && canSubmitPaymentReference(order) && Boolean(order.payment_reference);
-  if (status !== order.status && !nextStatuses[order.status].includes(status) && !canMarkPaid) {
+  if (status !== order.status && !nextStatuses[order.status].includes(status) && !canMarkPaid && !refundingReturn) {
     throw new Error("Order status changed. Reopen the order and try again.");
   }
 
