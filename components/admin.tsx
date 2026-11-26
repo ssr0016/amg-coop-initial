@@ -6,6 +6,7 @@ import { ClipboardList, LayoutDashboard, Package, Settings as SettingsIcon, User
 import { downloadCsv } from "../lib/csv";
 import {
   canSubmitPaymentReference, money, nextStatuses, paymentQrMaxBytes, paymentQrTypes, paymentTypeLabel, productCategories, statuses, statusLabel,
+  returnDetailsMaxLength, returnPhotoMaxBytes, returnPhotoTypes,
   type Order, type OrderStatus, type PaymentMethod, type Product, type Settings, type Store, type User,
 } from "../lib/models";
 import { completeOrder, deleteProduct, reviewMember, savePaymentSettings, saveProduct, updateOrder } from "../lib/storage";
@@ -264,13 +265,13 @@ function Orders({ store }: { store: Store }) {
         </div>
         {selected === order.id && <OrderForm key={`${order.id}-${order.status}`} order={order} contact={member?.contact}
           saving={pending === order.id} markingPaid={pending === paymentKey} resolving={pending === resolutionKey}
-          disabled={Boolean(pending)} onSave={(status, reference, notes) => {
+          disabled={Boolean(pending)} onSave={(status, reference, notes, resolution) => {
             const resolving = order.status === "return_requested" && status !== order.status;
             const message = resolving
               ? status === "cancelled" ? "Return resolved and order cancelled." : "Replacement marked as completed."
               : "Order updated.";
             run(() => {
-              updateOrder(order, { status, payment_reference: reference, admin_notes: notes });
+              updateOrder(order, { status, payment_reference: reference, admin_notes: notes }, resolution);
               if (resolving) statusFilter.current?.focus({ preventScroll: true });
             }, message, resolving ? resolutionKey : order.id);
           }} onMarkPaid={() => run(() => updateOrder(order, { status: "paid" }), "Order marked as paid.", paymentKey)} />}
@@ -281,17 +282,46 @@ function Orders({ store }: { store: Store }) {
 
 function OrderForm({ order, contact, saving, markingPaid, resolving, disabled, onSave, onMarkPaid }: {
   order: Order; contact?: string; saving: boolean; markingPaid: boolean; resolving: boolean; disabled: boolean;
-  onSave: (status: OrderStatus, reference: string, notes: string) => void;
+  onSave: (status: OrderStatus, reference: string, notes: string, resolution?: Order["returnResolution"]) => void;
   onMarkPaid: () => void;
 }) {
   const hasOpenReturn = order.status === "return_requested";
   const resolutionDialog = useRef<HTMLDialogElement>(null);
-  const confirmResolution = useRef<(status: "cancelled" | "completed") => void>(undefined);
+  const confirmResolution = useRef<(status: "cancelled" | "completed", resolution?: Order["returnResolution"]) => void>(undefined);
+  const [note, setNote] = useState("");
+  const [photo, setPhoto] = useState<string>();
+  const [readingPhoto, setReadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState("");
+
+  function readPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    setPhoto(undefined);
+    setPhotoError("");
+    if (!file) return;
+    if (!returnPhotoTypes.includes(file.type) || !file.size || file.size > returnPhotoMaxBytes) {
+      input.value = "";
+      setPhotoError("Choose a JPEG, PNG, WebP, or GIF image up to 512 KB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setReadingPhoto(false);
+      if (typeof reader.result === "string") setPhoto(reader.result);
+      else {
+        input.value = "";
+        setPhotoError("Could not read this photo. Choose another file.");
+      }
+    };
+    setReadingPhoto(true);
+    reader.readAsDataURL(file);
+  }
 
   function resolve(status: "cancelled" | "completed") {
     const confirm = confirmResolution.current;
     resolutionDialog.current?.close();
-    confirm?.(status);
+    confirm?.(status, status === "completed" ? { note, photo } : undefined);
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -300,7 +330,7 @@ function OrderForm({ order, contact, saving, markingPaid, resolving, disabled, o
     const reference = String(form.get("reference") ?? "").trim();
     const notes = String(form.get("notes") ?? "").trim();
     if (hasOpenReturn && form.has("resolve")) {
-      confirmResolution.current = (status) => onSave(status, reference, notes);
+      confirmResolution.current = (status, resolution) => onSave(status, reference, notes, resolution);
       resolutionDialog.current?.showModal();
       return;
     }
@@ -345,12 +375,24 @@ function OrderForm({ order, contact, saving, markingPaid, resolving, disabled, o
       <div className="stack">
         <h2 id="resolve-issue-title">Resolve this issue?</h2>
         <p id="resolve-issue-description" className="muted">A refund cancels the order and returns its item quantities to inventory. Completing a replacement closes the request and keeps current stock levels.</p>
+        <label>Resolution note for the member (optional)
+          <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={returnDetailsMaxLength} rows={3} />
+        </label>
+        <div className="field">
+          <label>Replacement photo (optional)
+            <input type="file" accept={returnPhotoTypes.join(",")} disabled={readingPhoto}
+              aria-describedby="replacement-photo-help" onChange={readPhoto} />
+          </label>
+          <p id="replacement-photo-help" className="muted text-sm">JPEG, PNG, WebP, or GIF up to 512 KB.</p>
+          {readingPhoto && <p className="muted text-sm" role="status">Reading photo…</p>}
+          {photoError && <p className="callout error-text" role="alert">{photoError}</p>}
+        </div>
         <div className="row-actions justify-end">
           <button type="button" className="button neutral" onClick={() => resolutionDialog.current?.close()}>Go back</button>
         </div>
         <div className="row-actions justify-end">
           <button type="button" className="button danger" disabled={disabled} onClick={() => resolve("cancelled")}>Refund &amp; Restock</button>
-          <button type="button" className="button" disabled={disabled} onClick={() => resolve("completed")}>Replacement Completed</button>
+          <button type="button" className="button" disabled={disabled || readingPhoto} onClick={() => resolve("completed")}>Replacement Completed</button>
         </div>
       </div>
     </dialog>}

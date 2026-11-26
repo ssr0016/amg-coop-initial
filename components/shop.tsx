@@ -425,6 +425,15 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
             <p className="text-sm">{codLabel}</p>
             <p className="mt-2 whitespace-pre-wrap">{instructions}</p>
           </div>
+          {order.status === "completed" && (order.returnResolution?.note || order.returnResolution?.photo) && (
+            <section className="callout">
+              <h3 className="font-bold">Resolution Proof</h3>
+              {order.returnResolution.note && <p className="mt-2 whitespace-pre-wrap">{order.returnResolution.note}</p>}
+              {order.returnResolution.photo && (
+                <img className="return-photo mt-2" src={order.returnResolution.photo} alt="Replacement item photo provided by the admin" />
+              )}
+            </section>
+          )}
         </div>
       </details>
       {canRequestReturn(order) && <div>

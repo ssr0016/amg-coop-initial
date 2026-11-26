@@ -232,14 +232,7 @@ export function requestReturn(expected: Order, reason: string, details: string, 
   const trimmedDetails = details.trim();
   if (trimmedDetails.length > returnDetailsMaxLength) throw new Error("Enter up to 1,000 characters of details.");
 
-  if (photo) {
-    const invalidPhoto = "Choose a JPEG, PNG, WebP, or GIF image up to 512 KB.";
-    const [format, content, extra] = photo.split(",", 3);
-    if (!returnPhotoTypes.some((type) => format === `data:${type};base64`) || !content ||
-        content.length % 4 !== 0 || content.length > Math.ceil(returnPhotoMaxBytes / 3) * 4 ||
-        extra !== undefined || !/^[A-Za-z0-9+/]+={0,2}$/.test(content) ||
-        atob(content).length > returnPhotoMaxBytes) throw new Error(invalidPhoto);
-  }
+  validateReturnPhoto(photo);
 
   saveOrderChange(store, order, {
     ...order, status: "return_requested", returnRequest: {
@@ -247,6 +240,17 @@ export function requestReturn(expected: Order, reason: string, details: string, 
       previousStatus: order.status === "paid" ? "paid" : order.returnRequest?.previousStatus ?? "completed",
     },
   });
+}
+
+function validateReturnPhoto(photo?: string) {
+  if (!photo) return;
+  const [format, content, extra] = photo.split(",", 3);
+  if (!returnPhotoTypes.some((type) => format === `data:${type};base64`) || !content ||
+      content.length % 4 !== 0 || content.length > Math.ceil(returnPhotoMaxBytes / 3) * 4 ||
+      extra !== undefined || !/^[A-Za-z0-9+/]+={0,2}$/.test(content) ||
+      atob(content).length > returnPhotoMaxBytes) {
+    throw new Error("Choose a JPEG, PNG, WebP, or GIF image up to 512 KB.");
+  }
 }
 
 export function cancelReturnRequest(expected: Order) {
@@ -258,7 +262,7 @@ export function cancelReturnRequest(expected: Order) {
 
 type OrderUpdate = Pick<Order, "status" | "payment_reference" | "admin_notes">;
 
-export function updateOrder(expected: Order, changes: Partial<OrderUpdate>) {
+export function updateOrder(expected: Order, changes: Partial<OrderUpdate>, resolution?: Order["returnResolution"]) {
   const store = getStore();
   requireRole(store, "admin");
   const order = store.orders.find((item) => item.id === expected.id);
@@ -267,8 +271,9 @@ export function updateOrder(expected: Order, changes: Partial<OrderUpdate>) {
   }
 
   const status = changes.status ?? order.status;
+  const completingReplacement = order.status === "return_requested" && status === "completed";
   const refundingReturn = order.status === "return_requested" && status === "cancelled";
-  if (order.status === "return_requested" && (status === "completed" || refundingReturn) &&
+  if ((completingReplacement || refundingReturn) &&
       order.returnRequest?.revision !== expected.returnRequest?.revision) {
     throw new Error("The member changed the return request. Review it before resolving the issue.");
   }
@@ -285,7 +290,14 @@ export function updateOrder(expected: Order, changes: Partial<OrderUpdate>) {
     throw new Error("The payment reference or account changed. Review it and try again.");
   }
   const payment_reference = editingReference ? newReference : order.payment_reference;
-  saveOrderChange(store, order, { ...order, ...changes, status, payment_reference });
+  let returnResolution = order.returnResolution;
+  if (completingReplacement && resolution) {
+    const note = resolution.note.trim();
+    if (note.length > returnDetailsMaxLength) throw new Error("Enter up to 1,000 characters for the resolution note.");
+    validateReturnPhoto(resolution.photo);
+    returnResolution = { note, photo: resolution.photo };
+  }
+  saveOrderChange(store, order, { ...order, ...changes, status, payment_reference, returnResolution });
 }
 
 export function cancelOrder(id: string) {
