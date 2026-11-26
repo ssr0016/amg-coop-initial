@@ -30,8 +30,24 @@ export type OrderItem = { productId: string; name: string; price: number; quanti
 export type Order = {
   id: string; userId: string; createdAt: string; items: OrderItem[]; total: number;
   paymentMethod: "cod"; status: OrderStatus; payment_reference: string; admin_notes: string;
+  paymentAccount?: PaymentAccount;
 };
-export type Settings = { paymentInstructions: string };
+export const canSubmitPaymentReference = (order: Order) =>
+  order.paymentMethod === "cod" && (order.status === "pending_payment" || order.status === "confirmed");
+
+export type PaymentAccount = {
+  id: string;
+  type: "gcash" | "bank";
+  accountName: string;
+  accountNumber: string;
+  bankName?: string;
+};
+export type PaymentMethod = PaymentAccount & { qrCode?: string };
+export type Settings = { paymentInstructions: string; paymentMethods: PaymentMethod[] };
+export const paymentTypeLabel = ({ type, bankName }: PaymentAccount) =>
+  type === "gcash" ? "GCash" : bankName ? `Bank (${bankName})` : "Bank";
+export const paymentQrMaxBytes = 1024 * 1024;
+export const paymentQrTypes = ["image/png", "image/jpeg", "image/webp", "image/gif"];
 export type Cart = Record<string, number>;
 export type Store = {
   catalogVersion?: 2;

@@ -1,4 +1,7 @@
-import { nextStatuses, orderTotal, productCategories, type Order, type OrderStatus, type Product, type Store, type User } from "./models";
+import {
+  canSubmitPaymentReference, nextStatuses, orderTotal, paymentQrMaxBytes, paymentQrTypes, productCategories,
+  type Order, type PaymentMethod, type Product, type Settings, type Store, type User,
+} from "./models";
 import { seed } from "./seed";
 
 const key = "ani-coop-market.v1";
@@ -7,10 +10,40 @@ const waiting = "Your account is awaiting admin approval";
 let cachedRaw: string | null = null;
 let cachedStore = seed;
 
+type LegacySettings = {
+  paymentInstructions: string;
+  gcashNumber?: string;
+  gcashName?: string;
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankAccountName?: string;
+  paymentQrCode?: string;
+};
+
+function migratePaymentSettings(settings: Settings | LegacySettings): Settings {
+  if ("paymentMethods" in settings) return settings;
+  const paymentMethods: PaymentMethod[] = [];
+  if (settings.gcashNumber || settings.gcashName) {
+    paymentMethods.push({
+      id: "legacy-gcash", type: "gcash", accountName: settings.gcashName ?? "", accountNumber: settings.gcashNumber ?? "",
+    });
+  }
+  if (settings.bankName || settings.bankAccountNumber || settings.bankAccountName) {
+    paymentMethods.push({
+      id: "legacy-bank", type: "bank", accountName: settings.bankAccountName ?? "",
+      accountNumber: settings.bankAccountNumber ?? "", bankName: settings.bankName,
+    });
+  }
+  // A shared QR cannot be assigned safely when both legacy accounts exist.
+  if (paymentMethods.length === 1) paymentMethods[0].qrCode = settings.paymentQrCode || undefined;
+  return { paymentInstructions: settings.paymentInstructions, paymentMethods };
+}
+
 export function getStore(): Store {
   const raw = localStorage.getItem(key);
   if (raw !== cachedRaw) {
-    cachedStore = raw ? JSON.parse(raw) as Store : seed;
+    const stored = raw ? JSON.parse(raw) as Omit<Store, "settings"> & { settings: Settings | LegacySettings } : seed;
+    cachedStore = { ...stored, settings: migratePaymentSettings(stored.settings) };
     cachedRaw = raw;
   }
   return cachedStore;
@@ -158,16 +191,50 @@ export function checkout() {
   const cart = store.carts[user.id];
   setStore({ ...store, orders: [order, ...store.orders], carts: { ...store.carts, [user.id]: {} },
     products: store.products.map((product) => ({ ...product, stock: product.stock - (cart[product.id] ?? 0) })) });
+  return order.id;
 }
 
-export function updateOrder(id: string, status: OrderStatus, payment_reference: string, admin_notes: string, expected: OrderStatus) {
+export function submitPaymentReference(id: string, accountId: string, reference: string) {
+  const store = getStore();
+  const user = requireRole(store, "member");
+  const order = store.orders.find((item) => item.id === id && item.userId === user.id);
+  if (!order || !canSubmitPaymentReference(order)) throw new Error("This order can no longer accept a payment reference.");
+
+  const value = reference.trim();
+  if (!value || value.length > 100) throw new Error("Enter a payment reference of 1 to 100 characters.");
+  const account = store.settings.paymentMethods.find((method) => method.id === accountId);
+  if (!account?.accountName || !account.accountNumber) throw new Error("Choose an available payment account.");
+  const { id: paymentId, type, accountName, accountNumber, bankName } = account;
+  saveOrderChange(store, order, {
+    ...order, payment_reference: value, paymentAccount: { id: paymentId, type, accountName, accountNumber, bankName },
+  });
+}
+
+type OrderUpdate = Pick<Order, "status" | "payment_reference" | "admin_notes">;
+
+export function updateOrder(expected: Order, changes: Partial<OrderUpdate>) {
   const store = getStore();
   requireRole(store, "admin");
-  const order = store.orders.find((item) => item.id === id);
-  if (!order || order.status !== expected || (status !== expected && !nextStatuses[expected].includes(status))) {
+  const order = store.orders.find((item) => item.id === expected.id);
+  if (!order || order.status !== expected.status) {
     throw new Error("Order status changed. Reopen the order and try again.");
   }
-  saveOrderChange(store, order, { ...order, status, payment_reference, admin_notes });
+
+  const status = changes.status ?? order.status;
+  const markingPaid = status === "paid" && status !== order.status;
+  const canMarkPaid = markingPaid && canSubmitPaymentReference(order) && Boolean(order.payment_reference);
+  if (status !== order.status && !nextStatuses[order.status].includes(status) && !canMarkPaid) {
+    throw new Error("Order status changed. Reopen the order and try again.");
+  }
+
+  const newReference = changes.payment_reference ?? expected.payment_reference;
+  const editingReference = newReference !== expected.payment_reference;
+  if ((markingPaid || editingReference) && (order.payment_reference !== expected.payment_reference ||
+      JSON.stringify(order.paymentAccount) !== JSON.stringify(expected.paymentAccount))) {
+    throw new Error("The payment reference or account changed. Review it and try again.");
+  }
+  const payment_reference = editingReference ? newReference : order.payment_reference;
+  saveOrderChange(store, order, { ...order, ...changes, status, payment_reference });
 }
 
 export function cancelOrder(id: string) {
@@ -201,9 +268,40 @@ function saveOrderChange(store: Store, order: Order, updated: Order) {
     })) : store.products });
 }
 
-export function saveInstructions(instructions: string) {
+export function savePaymentSettings(settings: Settings) {
   const store = getStore();
   requireRole(store, "admin");
-  if (!instructions.trim()) throw new Error("Enter payment instructions.");
-  setStore({ ...store, settings: { ...store.settings, paymentInstructions: instructions } });
+  const paymentInstructions = settings.paymentInstructions.trim();
+  if (!paymentInstructions || paymentInstructions.length > 1200) {
+    throw new Error("Enter payment instructions of up to 1,200 characters.");
+  }
+
+  const ids = new Set<string>();
+  const existing = new Map(store.settings.paymentMethods.map((method) => [method.id, method]));
+  const paymentMethods = settings.paymentMethods.map(({ id, type, accountName, accountNumber, bankName, qrCode }) => {
+    accountName = accountName.trim();
+    accountNumber = accountNumber.trim();
+    bankName = type === "bank" ? bankName?.trim() || undefined : undefined;
+    if (!id || ids.has(id) || (type !== "gcash" && type !== "bank") ||
+        !accountName || !accountNumber || [accountName, accountNumber, bankName ?? ""].some((value) => value.length > 100)) {
+      throw new Error("Enter a valid type, account name, and account number for each payment method.");
+    }
+    ids.add(id);
+
+    const uploadedQr = qrCode && qrCode.length <= Math.ceil(paymentQrMaxBytes / 3) * 4 + 32 &&
+      paymentQrTypes.some((mime) => qrCode.startsWith(`data:${mime};base64,`));
+    if (qrCode && !uploadedQr && qrCode !== existing.get(id)?.qrCode) {
+      throw new Error("Upload a QR code image of up to 1 MB for each payment method.");
+    }
+    return { id, type, accountName, accountNumber, bankName, qrCode: qrCode || undefined };
+  });
+
+  try {
+    setStore({ ...store, settings: { paymentInstructions, paymentMethods } });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "QuotaExceededError") {
+      throw new Error("Browser storage is full. Use smaller QR images or remove an unused image and try again.");
+    }
+    throw error;
+  }
 }

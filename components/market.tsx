@@ -8,7 +8,7 @@ import { currentUser, getStore, logout, seedStore, subscribe } from "../lib/stor
 import { seed } from "../lib/seed";
 import { Admin } from "./admin";
 import { Account } from "./account";
-import { Basket, Catalog, History, ProductDetail } from "./shop";
+import { Basket, Catalog, History, PaymentDetails, ProductDetail } from "./shop";
 import { PendingLabel, usePendingAction } from "./shared";
 
 const serverSnapshot = () => null;
@@ -24,7 +24,8 @@ export function Market({ path }: { path: string }) {
   const cartCount = Object.values(user ? store.carts[user.id] ?? {} : {}).reduce((sum, count) => sum + count, 0);
   const { pending, run } = usePendingAction();
   const signedOut = useRef(false);
-  const role = path.startsWith("admin") ? "admin" : ["cart", "checkout", "orders"].includes(path) ? "member" : null;
+  const [section, id] = path.split("/");
+  const role = section === "admin" ? "admin" : ["cart", "checkout", "orders", "payment-details"].includes(section) ? "member" : null;
   const blocked = role && user?.role !== role;
 
   useEffect(seedStore, []);
@@ -38,7 +39,8 @@ export function Market({ path }: { path: string }) {
   else if (path === "login" || path === "register") body = <Account registerMode={path === "register"} ready={snapshot !== null} />;
   else if (path === "cart" || path === "checkout") body = <Basket store={store} user={user!} checkoutMode={path === "checkout"} />;
   else if (path === "orders") body = <History orders={memberOrders} instructions={store.settings.paymentInstructions} />;
-  else if (path.startsWith("products/")) body = !snapshot ? <div className="wrap py-20" role="status">Loading product…</div> : <ProductDetail product={store.products.find((product) => product.id === path.split("/")[1])} user={user} />;
+  else if (section === "payment-details") body = <PaymentDetails settings={store.settings} orderId={id} order={memberOrders.find((order) => order.id === id)} />;
+  else if (section === "products") body = !snapshot ? <div className="wrap py-20" role="status">Loading product…</div> : <ProductDetail product={store.products.find((product) => product.id === id)} user={user} />;
   else body = <Catalog products={store.products} user={user} />;
 
   return <>

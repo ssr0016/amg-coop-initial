@@ -4,8 +4,11 @@ import Link from "next/link";
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { ClipboardList, LayoutDashboard, Package, Settings as SettingsIcon, Users, Plus } from "lucide-react";
 import { downloadCsv } from "../lib/csv";
-import { money, nextStatuses, productCategories, statuses, statusLabel, type Order, type OrderStatus, type Product, type Store, type User } from "../lib/models";
-import { completeOrder, deleteProduct, reviewMember, saveInstructions, saveProduct, updateOrder } from "../lib/storage";
+import {
+  canSubmitPaymentReference, money, nextStatuses, paymentQrMaxBytes, paymentQrTypes, paymentTypeLabel, productCategories, statuses, statusLabel,
+  type Order, type OrderStatus, type PaymentMethod, type Product, type Settings, type Store, type User,
+} from "../lib/models";
+import { completeOrder, deleteProduct, reviewMember, savePaymentSettings, saveProduct, updateOrder } from "../lib/storage";
 import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
 import { Analytics } from "./analytics";
 import { orderCode, orderDate, OrderLines } from "./shop";
@@ -76,7 +79,7 @@ export function Admin({ path, store }: { path: string; store: Store }) {
       {path === "admin/members" && <Members store={store} />}
       {path === "admin/products" && <Products products={store.products} />}
       {path === "admin/orders" && <Orders store={store} />}
-      {path === "admin/settings" && <PaymentSettings instructions={store.settings.paymentInstructions} />}
+      {path === "admin/settings" && <PaymentSettings settings={store.settings} />}
     </div>
   </section>;
 }
@@ -243,6 +246,7 @@ function Orders({ store }: { store: Store }) {
     {shown.length ? shown.map((order) => {
       const member = store.users.find((user) => user.id === order.userId);
       const completionKey = `complete:${order.id}`;
+      const paymentKey = `pay:${order.id}`;
       return <article className="panel stack" key={order.id}>
         <div className="row">
           <div><h2>{orderCode(order.id)}</h2><p className="muted text-sm">{member?.name ?? "Member"} · {orderDate(order.createdAt)}</p><p>{money(order.total)}</p></div>
@@ -257,17 +261,18 @@ function Orders({ store }: { store: Store }) {
           </div>
         </div>
         {selected === order.id && <OrderForm key={`${order.id}-${order.status}`} order={order} contact={member?.contact}
-          saving={pending === order.id} disabled={Boolean(pending)} onSave={(status, reference, notes) => run(
-            () => updateOrder(order.id, status, reference, notes, order.status), "Order updated.", order.id
-          )} />}
+          saving={pending === order.id} markingPaid={pending === paymentKey} disabled={Boolean(pending)} onSave={(status, reference, notes) => run(
+            () => updateOrder(order, { status, payment_reference: reference, admin_notes: notes }), "Order updated.", order.id
+          )} onMarkPaid={() => run(() => updateOrder(order, { status: "paid" }), "Order marked as paid.", paymentKey)} />}
       </article>;
     }) : <Empty>{filter ? "No orders match this status." : "No orders have been placed yet."}</Empty>}
   </div>;
 }
 
-function OrderForm({ order, contact, saving, disabled, onSave }: {
-  order: Order; contact?: string; saving: boolean; disabled: boolean;
+function OrderForm({ order, contact, saving, markingPaid, disabled, onSave, onMarkPaid }: {
+  order: Order; contact?: string; saving: boolean; markingPaid: boolean; disabled: boolean;
   onSave: (status: OrderStatus, reference: string, notes: string) => void;
+  onMarkPaid: () => void;
 }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -278,27 +283,111 @@ function OrderForm({ order, contact, saving, disabled, onSave }: {
   return <form className="stack order-form" onSubmit={submit}>
     <OrderLines order={order} />
     <p className="muted text-sm [overflow-wrap:anywhere]">Cash on Delivery / Pay to Admin{contact ? ` · ${contact}` : ""}</p>
+    {(order.payment_reference || order.paymentAccount) && <div className="callout row">
+      <div>
+        {order.payment_reference && <p><strong>Ref No: {order.payment_reference}</strong></p>}
+        {order.paymentAccount && <p>
+          <strong>Paid to: {paymentTypeLabel(order.paymentAccount)} - {order.paymentAccount.accountName}</strong>
+          {" · "}{order.paymentAccount.accountNumber}
+        </p>}
+        {order.payment_reference && canSubmitPaymentReference(order) && <p className="text-sm">Verify the transfer before marking the order as paid.</p>}
+      </div>
+      {order.payment_reference && canSubmitPaymentReference(order) && <button type="button" className="button w-full sm:w-auto" disabled={disabled}
+        onClick={onMarkPaid}>{markingPaid ? <PendingLabel>Marking as paid…</PendingLabel> : "Mark as Paid"}</button>}
+    </div>}
     <div className="field-grid">
       <div className="field"><label htmlFor="order-status">Order status</label><select id="order-status" name="status" defaultValue={order.status}>
         {[order.status, ...nextStatuses[order.status]].map((item) => <option key={item} value={item}>{statusLabel[item]}</option>)}
       </select></div>
-      <label>Payment reference<input name="reference" defaultValue={order.payment_reference} maxLength={100} /></label>
+      <label>Payment reference<input key={order.payment_reference} name="reference" defaultValue={order.payment_reference} maxLength={100} /></label>
     </div>
     <div className="field"><label htmlFor="order-notes">Admin notes</label><textarea id="order-notes" name="notes" defaultValue={order.admin_notes} maxLength={1000} rows={3} /></div>
     <div><button className="button w-full sm:w-auto" disabled={disabled}>{saving ? <PendingLabel>Saving...</PendingLabel> : "Save order"}</button></div>
   </form>;
 }
 
-function PaymentSettings({ instructions }: { instructions: string }) {
+function PaymentSettings({ settings }: { settings: Settings }) {
+  const act = useAction();
   const { pending, run } = usePendingAction();
+  const [methods, setMethods] = useState(settings.paymentMethods);
+  const [readingQr, setReadingQr] = useState<string>();
+
+  function editMethod(id: string, fields: Partial<Omit<PaymentMethod, "id">>) {
+    setMethods((current) => current.map((method) => method.id === id ? { ...method, ...fields } : method));
+  }
+
+  function readQr(id: string, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    act(() => {
+      if (!paymentQrTypes.includes(file.type) || !file.size || file.size > paymentQrMaxBytes) {
+        throw new Error("Choose a PNG, JPEG, WebP, or GIF image up to 1 MB.");
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setReadingQr(undefined);
+        act(() => {
+          if (typeof reader.result !== "string") throw new Error("The QR code image could not be read. Choose another file.");
+          editMethod(id, { qrCode: reader.result });
+        });
+      };
+      reader.readAsDataURL(file);
+      setReadingQr(id);
+    });
+  }
+
   return <form className="panel stack mt-6" onSubmit={(event) => {
     event.preventDefault();
-    const value = String(new FormData(event.currentTarget).get("instructions") ?? "");
-    run(() => saveInstructions(value), "Payment instructions saved.");
+    if (readingQr || pending) return;
+    const form = new FormData(event.currentTarget);
+    run(() => savePaymentSettings({
+      paymentInstructions: String(form.get("instructions") ?? ""),
+      paymentMethods: methods,
+    }), "Payment settings saved.");
   }}>
     <h2>Checkout payment</h2>
-    <p className="muted">Members see these instructions when they place a Cash on Delivery order.</p>
-    <div className="field"><label htmlFor="payment-instructions">Payment instructions</label><textarea id="payment-instructions" key={instructions} name="instructions" defaultValue={instructions} rows={5} required maxLength={1200} /></div>
-    <div><button className="button w-full sm:w-auto" disabled={Boolean(pending)}>{pending ? <PendingLabel>Saving...</PendingLabel> : "Save instructions"}</button></div>
+    <p className="muted">Members see these details when they choose Cash on Delivery / Pay to Admin.</p>
+    <div className="field"><label htmlFor="payment-instructions">Payment instructions</label><textarea id="payment-instructions" name="instructions"
+      defaultValue={settings.paymentInstructions} rows={4} required maxLength={1200} disabled={Boolean(pending)} /></div>
+    <div className="row">
+      <h2>Payment methods</h2>
+      <button type="button" className="button secondary w-full sm:w-auto" disabled={Boolean(pending)}
+        onClick={() => {
+          const id = crypto.randomUUID();
+          setMethods((current) => [...current, { id, type: "gcash", accountName: "", accountNumber: "" }]);
+        }}>+ Add Payment Method</button>
+    </div>
+    {methods.length === 0 && <p className="muted">No payment methods added.</p>}
+    {methods.length > 0 && <p id="payment-qr-hint" className="muted text-sm">QR images are optional. Choose a PNG, JPEG, WebP, or GIF up to 1 MB.</p>}
+    {methods.map((method, index) => <fieldset key={method.id} className="panel stack" disabled={Boolean(pending)}>
+      <legend className="px-2 font-bold">Payment method {index + 1}</legend>
+      <div className="field-grid">
+        <label>Type<select value={method.type}
+          onChange={(event) => editMethod(method.id, { type: event.target.value as PaymentMethod["type"] })}>
+          <option value="gcash">GCash</option><option value="bank">Bank</option>
+        </select></label>
+        {method.type === "bank" && <label>Bank Name (optional)<input value={method.bankName ?? ""} maxLength={100}
+          onChange={(event) => editMethod(method.id, { bankName: event.target.value })} /></label>}
+        <label>Account Name<input value={method.accountName} required maxLength={100}
+          onChange={(event) => editMethod(method.id, { accountName: event.target.value })} /></label>
+        <label>Account Number<input value={method.accountNumber} required maxLength={100}
+          onChange={(event) => editMethod(method.id, { accountNumber: event.target.value })} /></label>
+      </div>
+      <label>QR Code Image<input type="file" accept={paymentQrTypes.join(",")} aria-describedby="payment-qr-hint"
+        disabled={Boolean(readingQr)} onChange={(event) => readQr(method.id, event)} /></label>
+      {readingQr === method.id && <p className="muted text-sm" role="status">Reading QR code…</p>}
+      {method.qrCode && <div className="stack">
+        <img className="w-32 max-w-full rounded border border-(--border)" src={method.qrCode}
+          alt={`Payment QR code for method ${index + 1}`} referrerPolicy="no-referrer" />
+        <div><button type="button" className="button secondary w-full sm:w-auto" disabled={readingQr === method.id}
+          onClick={() => editMethod(method.id, { qrCode: undefined })}>Remove QR Code</button></div>
+      </div>}
+      <div><button type="button" className="button secondary w-full sm:w-auto" disabled={readingQr === method.id}
+        onClick={() => setMethods((current) => current.filter(({ id }) => id !== method.id))}>Remove Payment Method</button></div>
+    </fieldset>)}
+    <div><button className="button w-full sm:w-auto" disabled={Boolean(readingQr || pending)}>
+      {pending ? <PendingLabel>Saving...</PendingLabel> : "Save payment settings"}
+    </button></div>
   </form>;
 }

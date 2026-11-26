@@ -24,5 +24,8 @@ export const seed: Store = {
     { id: "pending", name: "Paolo Reyes", email: "pending@coop.test", password: "pending123", memberId: "AMG-102", contact: "09170000002", role: "member", status: "pending" },
   ],
   orders: [], carts: {}, session: null,
-  settings: { paymentInstructions: "Pay the amount shown when your order arrives or directly to the cooperative admin. The admin will update your order after receiving payment." },
+  settings: {
+    paymentInstructions: "Pay the amount shown when your order arrives or directly to the cooperative admin. The admin will update your order after receiving payment.",
+    paymentMethods: [],
+  },
 };

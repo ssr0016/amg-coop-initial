@@ -7,8 +7,11 @@ import {
   ArrowDown, ArrowRight, ArrowLeft, Search, ShoppingBag, Truck, Sprout, Package, Plus,
   ShoppingBasket, House, Backpack, Calculator, SoapDispenserDroplet, Gift, Pause, Play,
 } from "lucide-react";
-import { money, nextStatuses, orderTotal, productCategories, type Order, type Product, type Store, type User } from "../lib/models";
-import { cancelOrder, checkout, completeOrder, setQuantity } from "../lib/storage";
+import {
+  canSubmitPaymentReference, money, nextStatuses, orderTotal, paymentTypeLabel, productCategories,
+  type Order, type Product, type Settings, type Store, type User,
+} from "../lib/models";
+import { cancelOrder, checkout, completeOrder, setQuantity, submitPaymentReference } from "../lib/storage";
 import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
 
 const categories = ["All", ...productCategories];
@@ -226,11 +229,12 @@ export function ProductDetail({ product, user }: { product?: Product; user?: Use
 }
 
 const codLabel = "Cash on Delivery / Pay to Admin";
+const paymentDetailsPath = "/payment-details";
 
 export function Basket({ store, user, checkoutMode }: { store: Store; user: User; checkoutMode: boolean }) {
   const act = useAction();
   const { pending, run } = usePendingAction();
-  const [placed, setPlaced] = useState(false);
+  const [placedOrderId, setPlacedOrderId] = useState<string>();
   const entries = Object.entries(store.carts[user.id] ?? {}).map(([id, quantity]) => ({
     id, quantity, product: store.products.find((product) => product.id === id),
   }));
@@ -240,7 +244,14 @@ export function Basket({ store, user, checkoutMode }: { store: Store; user: User
   return <section className="wrap inner">
     <Link href={checkoutMode ? "/cart" : "/#catalog"} className="back"><ArrowLeft size={17} aria-hidden /> {checkoutMode ? "Back to cart" : "Continue shopping"}</Link>
     <h1>{title}</h1>
-    {placed ? <div className="panel stack mt-6"><h2>Order placed.</h2><div><Status value="pending_payment" /></div><p className="muted">You can follow your order in your order history.</p><div><Link className="button" href="/orders">View my orders <ArrowRight size={17} aria-hidden /></Link></div></div> :
+    {placedOrderId ? <div className="panel stack mt-6">
+      <h2>Order placed.</h2>
+      <div><Status value="pending_payment" /></div>
+      <div className="row-actions">
+        <Link className="button" href={`${paymentDetailsPath}/${placedOrderId}`}>View Payment Details</Link>
+        <Link className="button secondary" href="/orders">View my orders <ArrowRight size={17} aria-hidden /></Link>
+      </div>
+    </div> :
       !entries.length ? <Empty action={<Link className="button" href="/#catalog">Browse products</Link>}>Your cart is empty.</Empty> :
       <div className="purchase-grid grid grid-cols-1 md:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]">
         <div className="panel stack">
@@ -259,13 +270,16 @@ export function Basket({ store, user, checkoutMode }: { store: Store; user: User
         </div>
         <aside className="panel stack">
           <h2>{checkoutMode ? "Payment" : "Order total"}</h2>
-          {checkoutMode && <div className="callout stack"><div className="flex items-center gap-2"><Truck size={20} aria-hidden /><strong>{codLabel}</strong></div><p className="whitespace-pre-wrap">{store.settings.paymentInstructions}</p></div>}
+          {checkoutMode && <div className="callout stack">
+            <div className="flex items-center gap-2"><Truck size={20} className="shrink-0" aria-hidden /><strong>{codLabel}</strong></div>
+            <p className="whitespace-pre-wrap">{store.settings.paymentInstructions}</p>
+            <div><Link className="button secondary w-full sm:w-auto" href={paymentDetailsPath}>View Payment Details</Link></div>
+          </div>}
           <div className="total"><span>Total</span><strong>{money(orderTotal(items))}</strong></div>
           {!valid && <p className="error-text">Update unavailable items in your cart before placing an order.</p>}
           {checkoutMode ? <button className="button" type="button" disabled={!valid || Boolean(pending)}
             onClick={() => run(() => {
-              checkout();
-              setPlaced(true);
+              setPlacedOrderId(checkout());
             }, "Order placed successfully!")}>
             {pending ? <PendingLabel>Processing...</PendingLabel> : <>Place order <ArrowRight size={17} aria-hidden /></>}
           </button> :
@@ -282,6 +296,72 @@ export function OrderLines({ order }: { order: Order }) {
 }
 export const orderCode = (id: string) => `AMG-${id.slice(0, 8).toUpperCase()}`;
 export const orderDate = (date: string) => new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeZone: "Asia/Manila" }).format(new Date(date));
+
+export function PaymentDetails({ settings, orderId, order }: { settings: Settings; orderId?: string; order?: Order }) {
+  const act = useAction();
+  const backPath = orderId ? "/orders" : "/checkout";
+  const methods = settings.paymentMethods.filter(({ accountName, accountNumber }) => accountName && accountNumber);
+  const [accountId, setAccountId] = useState(order?.paymentAccount?.id ?? "");
+  const availableAccountId = methods.some((method) => method.id === accountId) ? accountId : "";
+  const awaitingConfirmation = order && canSubmitPaymentReference(order);
+
+  return <section className="wrap inner max-w-2xl">
+    <Link href={backPath} className="back"><ArrowLeft size={17} aria-hidden /> {orderId ? "Back to my orders" : "Back to checkout"}</Link>
+    <h1>Payment Details</h1>
+    {orderId && !order ? <Empty>This order is unavailable.</Empty> : <div className="stack mt-6">
+      <div className="panel stack">
+        {order && <div className="row">
+          <div><h2>{orderCode(order.id)}</h2><p className="muted">Order total <strong>{money(order.total)}</strong></p></div>
+          <Status value={order.status} />
+        </div>}
+        <div className="callout">
+          <p className="font-bold">{codLabel}</p>
+          <p className="mt-2 whitespace-pre-wrap">{settings.paymentInstructions}</p>
+        </div>
+        {methods.length > 0 ? <section className="stack">
+          <h2>Payment methods</h2>
+          {methods.map((method) => <div key={method.id} className="flex flex-col items-start justify-between gap-4 border-t border-(--border) pt-4 sm:flex-row">
+            <div className="min-w-0 wrap-anywhere">
+              <h3 className="mb-2 text-lg font-bold">{paymentTypeLabel(method)}</h3>
+              <dl className="grid gap-2">
+                <div><dt className="muted text-sm">Account name</dt><dd>{method.accountName}</dd></div>
+                <div><dt className="muted text-sm">Account number</dt><dd className="font-bold">{method.accountNumber}</dd></div>
+              </dl>
+            </div>
+            {method.qrCode && <img className="w-36 max-w-full shrink-0 rounded border border-(--border)" src={method.qrCode}
+              alt={`Payment QR code for ${method.accountName} (${paymentTypeLabel(method)})`} referrerPolicy="no-referrer" />}
+          </div>)}
+        </section> : <p className="muted">The admin hasn’t added any payment accounts yet.</p>}
+        {!order && methods.length > 0 && <p>Place your order before sending payment so you can submit the reference for that order.</p>}
+      </div>
+      {order?.payment_reference && <div className="callout">
+        <p>Ref No: <strong>{order.payment_reference}</strong>{awaitingConfirmation && " · Awaiting admin confirmation"}</p>
+        {order.paymentAccount && <p>Paid to: {paymentTypeLabel(order.paymentAccount)} - {order.paymentAccount.accountName}
+          {" · "}{order.paymentAccount.accountNumber}</p>}
+      </div>}
+      {order && awaitingConfirmation && methods.length > 0 && <form className="panel stack" onSubmit={(event) => {
+        event.preventDefault();
+        const reference = String(new FormData(event.currentTarget).get("reference") ?? "");
+        act(() => submitPaymentReference(order.id, availableAccountId, reference), "Payment reference submitted. Awaiting admin confirmation.");
+      }}>
+        <h2>Submit a payment reference</h2>
+        <label>Account you paid
+          <select value={availableAccountId} required onChange={(event) => setAccountId(event.target.value)}>
+            <option value="" disabled>Choose a payment account</option>
+            {methods.map((method) => <option key={method.id} value={method.id}>
+              {paymentTypeLabel(method)} - {method.accountName} · {method.accountNumber}
+            </option>)}
+          </select>
+        </label>
+        <label>Payment Reference Number
+          <input name="reference" key={order.payment_reference} defaultValue={order.payment_reference}
+            placeholder="e.g. GCash Ref No." maxLength={100} required />
+        </label>
+        <div><button className="button w-full sm:w-auto">{order.payment_reference ? "Update Reference" : "Submit Payment Reference"}</button></div>
+      </form>}
+    </div>}
+  </section>;
+}
 
 export function History({ orders, instructions }: { orders: Order[]; instructions: string }) {
   const { pending, run } = usePendingAction();
@@ -316,6 +396,7 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
         <div><h2>{orderCode(order.id)}</h2><time className="muted text-sm" dateTime={order.createdAt}>{orderDate(order.createdAt)}</time></div>
         <div className="row-actions">
           <Status value={order.status} />
+          {canSubmitPaymentReference(order) && <Link className="button secondary" href={`${paymentDetailsPath}/${order.id}`}>View Payment Details</Link>}
           {order.status === "paid" && <button type="button" className="button" aria-haspopup="dialog"
             onClick={() => setConfirmation({ id: order.id, action: "receive" })}>Order Received</button>}
           {nextStatuses[order.status].includes("cancelled") && <button type="button" className="button secondary" aria-haspopup="dialog"
@@ -326,6 +407,8 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
         {order.items[0].quantity} × {order.items[0].name}
         {order.items.length > 1 && ` + ${order.items.length - 1} more`}
       </p>}
+      {order.payment_reference && <p className="muted text-sm wrap-anywhere">Payment reference: {order.payment_reference}
+        {canSubmitPaymentReference(order) && " · Awaiting admin confirmation"}</p>}
       <details>
         <summary className="text-link order-summary">View order details</summary>
         <div className="stack mt-2">
@@ -336,7 +419,6 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
             <p className="text-sm">{codLabel}</p>
             <p className="mt-2 whitespace-pre-wrap">{instructions}</p>
           </div>
-          {order.payment_reference && <p className="muted text-sm [overflow-wrap:anywhere]">Payment reference: {order.payment_reference}</p>}
         </div>
       </details>
     </article>) : <Empty action={<Link className="button" href="/#catalog">Browse products</Link>}>You haven’t placed any orders yet.</Empty>}</div>
