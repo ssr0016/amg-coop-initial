@@ -328,8 +328,11 @@ export function PaymentDetails({ settings, orderId, order }: { settings: Setting
                 <div><dt className="muted text-sm">Account number</dt><dd className="font-bold">{method.accountNumber}</dd></div>
               </dl>
             </div>
-            {method.qrCode && <img className="w-36 max-w-full shrink-0 rounded border border-(--border)" src={method.qrCode}
-              alt={`Payment QR code for ${method.accountName} (${paymentTypeLabel(method)})`} referrerPolicy="no-referrer" />}
+            {method.qrCode && <figure className="mx-auto w-full max-w-[300px] shrink-0 sm:mx-0">
+              <img className="h-auto w-full rounded-lg border border-gray-200 bg-white p-2" src={method.qrCode}
+                alt={`Payment QR code for ${method.accountName} (${paymentTypeLabel(method)})`} referrerPolicy="no-referrer" />
+              <figcaption className="muted mt-2 text-center text-sm">Scan this QR code using your GCash or Bank app.</figcaption>
+            </figure>}
           </div>)}
         </section> : <p className="muted">The admin hasn’t added any payment accounts yet.</p>}
         {!order && methods.length > 0 && <p>Place your order before sending payment so you can submit the reference for that order.</p>}
