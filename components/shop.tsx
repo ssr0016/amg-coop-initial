@@ -8,7 +8,7 @@ import {
   ShoppingBasket, House, Backpack, Calculator, SoapDispenserDroplet, Gift, Pause, Play,
 } from "lucide-react";
 import { money, nextStatuses, orderTotal, productCategories, type Order, type Product, type Store, type User } from "../lib/models";
-import { cancelOrder, checkout, setQuantity } from "../lib/storage";
+import { cancelOrder, checkout, completeOrder, setQuantity } from "../lib/storage";
 import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
 
 const categories = ["All", ...productCategories];
@@ -287,22 +287,45 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
   const { pending, run } = usePendingAction();
   const heading = useRef<HTMLHeadingElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  const orderToCancel = useRef("");
+  const [confirmation, setConfirmation] = useState<{ id: string; action: "receive" | "cancel" }>();
+  const receiving = confirmation?.action === "receive";
+
+  useEffect(() => {
+    if (confirmation) dialog.current?.showModal();
+  }, [confirmation]);
+
+  function confirmOrderAction() {
+    if (!confirmation) return;
+    const { id } = confirmation;
+    run(() => {
+      try {
+        if (receiving) completeOrder(id);
+        else cancelOrder(id);
+      } finally {
+        dialog.current?.close();
+        heading.current?.focus({ preventScroll: true });
+      }
+    }, receiving ? "Order marked as completed." : "Order cancelled successfully.");
+  }
 
   return <section className="wrap inner">
     <h1 ref={heading} tabIndex={-1}>My orders</h1>
     <p className="muted mt-2">Track your cooperative orders and payments.</p>
     <div className="stack mt-6">{orders.length ? orders.map((order) => <article className="panel stack" key={order.id}>
       <div className="row">
-        <div><h2>{orderCode(order.id)}</h2><p className="muted text-sm">{orderDate(order.createdAt)}</p></div>
+        <div><h2>{orderCode(order.id)}</h2><time className="muted text-sm" dateTime={order.createdAt}>{orderDate(order.createdAt)}</time></div>
         <div className="row-actions">
           <Status value={order.status} />
-          {nextStatuses[order.status].includes("cancelled") && <button type="button" className="button secondary" aria-haspopup="dialog" onClick={() => {
-            orderToCancel.current = order.id;
-            dialog.current?.showModal();
-          }}>Cancel Order</button>}
+          {order.status === "paid" && <button type="button" className="button" aria-haspopup="dialog"
+            onClick={() => setConfirmation({ id: order.id, action: "receive" })}>Order Received</button>}
+          {nextStatuses[order.status].includes("cancelled") && <button type="button" className="button secondary" aria-haspopup="dialog"
+            onClick={() => setConfirmation({ id: order.id, action: "cancel" })}>Cancel Order</button>}
         </div>
       </div>
+      {order.items[0] && <p className="muted text-sm wrap-anywhere">
+        {order.items[0].quantity} × {order.items[0].name}
+        {order.items.length > 1 && ` + ${order.items.length - 1} more`}
+      </p>}
       <details>
         <summary className="text-link order-summary">View order details</summary>
         <div className="stack mt-2">
@@ -317,24 +340,20 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
         </div>
       </details>
     </article>) : <Empty action={<Link className="button" href="/#catalog">Browse products</Link>}>You haven’t placed any orders yet.</Empty>}</div>
-    <dialog ref={dialog} aria-labelledby="cancel-order-title" aria-describedby="cancel-order-description"
+    <dialog ref={dialog} aria-labelledby="order-action-title" aria-describedby="order-action-description"
       className="panel fixed inset-0 m-auto w-[calc(100%_-_2rem)] max-w-md max-h-[calc(100%_-_2rem)] overflow-y-auto shadow-xl backdrop:bg-black/55"
-      onCancel={(event) => { if (pending) event.preventDefault(); }}>
+      onCancel={(event) => { if (pending) event.preventDefault(); }}
+      onClose={() => setConfirmation(undefined)}>
       <div className="stack">
-        <h2 id="cancel-order-title">Cancel Order?</h2>
-        <p id="cancel-order-description" className="muted">Are you sure you want to cancel this order? This action cannot be undone.</p>
+        <h2 id="order-action-title">{receiving ? "Order received?" : "Cancel Order?"}</h2>
+        <p id="order-action-description" className="muted">{receiving
+          ? "Confirm that you received your order. This will mark it as completed."
+          : "Are you sure you want to cancel this order? This action cannot be undone."}</p>
         <div className="row-actions justify-end">
           <button type="button" className="button neutral" disabled={Boolean(pending)}
-            onClick={() => dialog.current?.close()}>Keep Order</button>
-          <button type="button" className="button danger" disabled={Boolean(pending)} onClick={() => run(() => {
-            try {
-              cancelOrder(orderToCancel.current);
-            } finally {
-              dialog.current?.close();
-            }
-            heading.current?.focus({ preventScroll: true });
-          }, "Order cancelled successfully.")}>
-            {pending ? <PendingLabel>Processing...</PendingLabel> : "Yes, Cancel"}
+            onClick={() => dialog.current?.close()}>{receiving ? "Go back" : "Keep Order"}</button>
+          <button type="button" className={receiving ? "button" : "button danger"} disabled={Boolean(pending)} onClick={confirmOrderAction}>
+            {pending ? <PendingLabel>Processing...</PendingLabel> : receiving ? "Confirm Receipt" : "Yes, Cancel"}
           </button>
         </div>
       </div>

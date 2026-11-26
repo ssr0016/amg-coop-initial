@@ -81,7 +81,10 @@ export function PendingLabel({ children }: { children: ReactNode }) {
 }
 
 export function Status({ value }: { value: OrderStatus }) {
-  return <span className={`status status-${value}`}>{statusLabel[value]}</span>;
+  return <span className={`status status-${value}`}>
+    {value === "completed" && <Check size={14} aria-hidden />}
+    {statusLabel[value]}
+  </span>;
 }
 
 export function Empty({ children, action }: { children: ReactNode; action?: ReactNode }) {

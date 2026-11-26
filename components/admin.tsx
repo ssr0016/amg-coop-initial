@@ -5,7 +5,7 @@ import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { ClipboardList, LayoutDashboard, Package, Settings as SettingsIcon, Users, Plus } from "lucide-react";
 import { downloadCsv } from "../lib/csv";
 import { money, nextStatuses, productCategories, statuses, statusLabel, type Order, type OrderStatus, type Product, type Store, type User } from "../lib/models";
-import { deleteProduct, reviewMember, saveInstructions, saveProduct, updateOrder } from "../lib/storage";
+import { completeOrder, deleteProduct, reviewMember, saveInstructions, saveProduct, updateOrder } from "../lib/storage";
 import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
 import { Analytics } from "./analytics";
 import { orderCode, orderDate, OrderLines } from "./shop";
@@ -242,11 +242,19 @@ function Orders({ store }: { store: Store }) {
     </select></div>
     {shown.length ? shown.map((order) => {
       const member = store.users.find((user) => user.id === order.userId);
+      const completionKey = `complete:${order.id}`;
       return <article className="panel stack" key={order.id}>
         <div className="row">
           <div><h2>{orderCode(order.id)}</h2><p className="muted text-sm">{member?.name ?? "Member"} · {orderDate(order.createdAt)}</p><p>{money(order.total)}</p></div>
-          <div className="row-actions"><Status value={order.status} /><button type="button" className="button secondary" aria-expanded={selected === order.id}
-            onClick={() => setSelected(selected === order.id ? undefined : order.id)}>{selected === order.id ? "Hide order" : "View order"}</button></div>
+          <div className="row-actions">
+            <Status value={order.status} />
+            <button type="button" className="button secondary" aria-expanded={selected === order.id}
+              onClick={() => setSelected(selected === order.id ? undefined : order.id)}>{selected === order.id ? "Hide order" : "View order"}</button>
+            {order.status === "paid" && <button type="button" className="button" disabled={Boolean(pending)}
+              onClick={() => run(() => completeOrder(order.id), "Order marked as completed.", completionKey)}>
+              {pending === completionKey ? <PendingLabel>Completing...</PendingLabel> : "Mark as Completed"}
+            </button>}
+          </div>
         </div>
         {selected === order.id && <OrderForm key={`${order.id}-${order.status}`} order={order} contact={member?.contact}
           saving={pending === order.id} disabled={Boolean(pending)} onSave={(status, reference, notes) => run(

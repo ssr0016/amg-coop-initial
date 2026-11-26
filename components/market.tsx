@@ -18,6 +18,9 @@ export function Market({ path }: { path: string }) {
   const snapshot = useSyncExternalStore(subscribe, getStore, serverSnapshot);
   const store = snapshot ?? seed;
   const user = snapshot ? currentUser(store) : undefined;
+  const memberOrders = user?.role === "member" ? store.orders.filter((order) => order.userId === user.id) : [];
+  const activeOrderCount = memberOrders.filter(({ status }) =>
+    status === "pending_payment" || status === "confirmed" || status === "paid").length;
   const cartCount = Object.values(user ? store.carts[user.id] ?? {} : {}).reduce((sum, count) => sum + count, 0);
   const { pending, run } = usePendingAction();
   const signedOut = useRef(false);
@@ -34,7 +37,7 @@ export function Market({ path }: { path: string }) {
   else if (path.startsWith("admin")) body = <Admin path={path} store={store} />;
   else if (path === "login" || path === "register") body = <Account registerMode={path === "register"} ready={snapshot !== null} />;
   else if (path === "cart" || path === "checkout") body = <Basket store={store} user={user!} checkoutMode={path === "checkout"} />;
-  else if (path === "orders") body = <History orders={store.orders.filter((order) => order.userId === user!.id)} instructions={store.settings.paymentInstructions} />;
+  else if (path === "orders") body = <History orders={memberOrders} instructions={store.settings.paymentInstructions} />;
   else if (path.startsWith("products/")) body = !snapshot ? <div className="wrap py-20" role="status">Loading product…</div> : <ProductDetail product={store.products.find((product) => product.id === path.split("/")[1])} user={user} />;
   else body = <Catalog products={store.products} user={user} />;
 
@@ -48,8 +51,13 @@ export function Market({ path }: { path: string }) {
           <Link href="/" aria-current={!path ? "page" : undefined}>Shop</Link>
           {user?.role === "admin" && <Link href="/admin" aria-current={role === "admin" ? "page" : undefined}>Admin</Link>}
           {user?.role === "member" && <>
-            <Link href="/orders" aria-current={path === "orders" ? "page" : undefined}>My orders</Link>
-            <Link href="/cart" className="nav-cart" aria-label={`Cart (${cartCount})`}><ShoppingBag size={17} aria-hidden /> <span>Cart</span> <b>{cartCount}</b></Link>
+            <Link href="/orders" aria-current={path === "orders" ? "page" : undefined}>
+              My orders
+              {activeOrderCount > 0 && <span className="nav-count">
+                {activeOrderCount}<span className="sr-only"> active {activeOrderCount === 1 ? "order" : "orders"}</span>
+              </span>}
+            </Link>
+            <Link href="/cart" aria-label={`Cart (${cartCount})`}><ShoppingBag size={17} aria-hidden /> <span>Cart</span> <span className="nav-count">{cartCount}</span></Link>
           </>}
           {user ? <button type="button" className="nav-sign" disabled={Boolean(pending)} onClick={() => run(() => {
             logout();

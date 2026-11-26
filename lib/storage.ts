@@ -180,6 +180,18 @@ export function cancelOrder(id: string) {
   saveOrderChange(store, order, { ...order, status: "cancelled" });
 }
 
+export function completeOrder(id: string) {
+  const store = getStore();
+  const user = currentUser(store);
+  if (!user) throw new Error("Sign in with an authorized account to continue.");
+
+  const order = store.orders.find((item) => item.id === id && (user.role === "admin" || item.userId === user.id));
+  if (!order || order.status !== "paid") {
+    throw new Error("This order can no longer be completed.");
+  }
+  saveOrderChange(store, order, { ...order, status: "completed" });
+}
+
 function saveOrderChange(store: Store, order: Order, updated: Order) {
   const restore = updated.status === "cancelled" && order.status !== "cancelled";
   setStore({ ...store,
