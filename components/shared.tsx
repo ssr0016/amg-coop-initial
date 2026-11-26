@@ -4,7 +4,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, CircleAlert, LoaderCircle, PackageOpen } from "lucide-react";
-import { statusLabel, type OrderStatus } from "../lib/models";
+import { getOrderResolution, resolutionLabels, statusLabel, type Order, type OrderStatus } from "../lib/models";
 
 const ActionContext = createContext<(action: () => void, message?: string) => boolean>(() => false);
 export const useAction = () => useContext(ActionContext);
@@ -85,6 +85,19 @@ export function Status({ value }: { value: OrderStatus }) {
     {value === "completed" && <Check size={14} aria-hidden />}
     {statusLabel[value]}
   </span>;
+}
+
+export function OrderStatusBadges({ order }: { order: Order }) {
+  const resolution = getOrderResolution(order);
+  return <span className="inline-flex flex-wrap items-center gap-2">
+    <Status value={order.status} />
+    {resolution && <span className={`status status-${resolution}`}>{resolutionLabels[resolution]}</span>}
+  </span>;
+}
+
+export function OrderResolution({ order }: { order: Order }) {
+  const resolution = getOrderResolution(order);
+  return resolution ? <p><strong>Resolution:</strong> {resolutionLabels[resolution]}</p> : null;
 }
 
 export function Empty({ children, action }: { children: ReactNode; action?: ReactNode }) {

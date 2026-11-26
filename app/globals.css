@@ -173,6 +173,8 @@ button.text-link { min-height: 44px; font-size: .85rem; }
 .status-confirmed { background: #e2edf3; color: #264f66; }
 .status-return_requested { background: #eee4f7; color: #593579; }
 .status-cancelled, .member-rejected { background: #f5e2dc; color: #813425; }
+.status-refunded { background: #813425; color: var(--white); }
+.status-replaced { background: #e4efdd; color: #275132; }
 .admin-wrap { padding-block: 26px 70px; gap: 1.7rem; min-height: 66vh; }
 .admin-menu-label { margin: 0 0 .65rem .7rem; }
 .admin-nav { display: flex; flex-wrap: wrap; gap: .25rem; }

@@ -13,7 +13,7 @@ import {
   type Order, type Product, type Settings, type Store, type User,
 } from "../lib/models";
 import { cancelOrder, cancelReturnRequest, checkout, completeOrder, requestReturn, setQuantity, submitPaymentReference } from "../lib/storage";
-import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
+import { Empty, OrderResolution, OrderStatusBadges, PendingLabel, Status, useAction, usePendingAction } from "./shared";
 
 const categories = ["All", ...productCategories];
 const categoryIcons = {
@@ -313,8 +313,9 @@ export function PaymentDetails({ settings, orderId, order }: { settings: Setting
       <div className="panel stack">
         {order && <div className="row">
           <div><h2>{orderCode(order.id)}</h2><p className="muted">Order total <strong>{money(order.total)}</strong></p></div>
-          <Status value={order.status} />
+          <OrderStatusBadges order={order} />
         </div>}
+        {order && <OrderResolution order={order} />}
         <div className="callout">
           <p className="font-bold">{codLabel}</p>
           <p className="mt-2 whitespace-pre-wrap">{settings.paymentInstructions}</p>
@@ -401,7 +402,7 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
       <div className="row">
         <div><h2>{orderCode(order.id)}</h2><time className="muted text-sm" dateTime={order.createdAt}>{orderDate(order.createdAt)}</time></div>
         <div className="row-actions">
-          <Status value={order.status} />
+          <OrderStatusBadges order={order} />
           {canSubmitPaymentReference(order) && <Link className="button secondary" href={`${paymentDetailsPath}/${order.id}`}>View Payment Details</Link>}
           {order.status === "paid" && <button type="button" className="button" aria-haspopup="dialog"
             onClick={() => setConfirmation({ order, action: "receive" })}>Order Received</button>}
@@ -422,6 +423,7 @@ export function History({ orders, instructions }: { orders: Order[]; instruction
       <details>
         <summary className="text-link order-summary">View order details</summary>
         <div className="stack mt-2">
+          <OrderResolution order={order} />
           <OrderLines order={order} />
           <div className="total"><span>Order total</span><strong>{money(order.total)}</strong></div>
           <div className="callout">

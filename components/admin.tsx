@@ -6,11 +6,11 @@ import { ClipboardList, LayoutDashboard, Package, Settings as SettingsIcon, User
 import { downloadCsv } from "../lib/csv";
 import {
   canSubmitPaymentReference, money, nextStatuses, paymentQrMaxBytes, paymentQrTypes, paymentTypeLabel, productCategories, statuses, statusLabel,
-  preferredResolutionLabels, returnDetailsMaxLength, returnPhotoMaxBytes, returnPhotoTypes,
+  getOrderResolution, preferredResolutionLabels, resolutionLabels, returnDetailsMaxLength, returnPhotoMaxBytes, returnPhotoTypes,
   type Order, type OrderStatus, type PaymentMethod, type Product, type Settings, type Store, type User,
 } from "../lib/models";
 import { completeOrder, deleteProduct, requestItemReturn, reviewMember, savePaymentSettings, saveProduct, updateOrder } from "../lib/storage";
-import { Empty, PendingLabel, Status, useAction, usePendingAction } from "./shared";
+import { Empty, OrderResolution, OrderStatusBadges, PendingLabel, useAction, usePendingAction } from "./shared";
 import { Analytics } from "./analytics";
 import { orderCode, orderDate, OrderLines } from "./shop";
 
@@ -234,7 +234,7 @@ function Orders({ store }: { store: Store }) {
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<string>();
   const statusFilter = useRef<HTMLSelectElement>(null);
-  const shown = store.orders.filter((order) => !filter || order.status === filter);
+  const shown = store.orders.filter((order) => !filter || order.status === filter || getOrderResolution(order) === filter);
   return <div className="stack mt-6">
     <div><button type="button" className="button secondary w-full sm:w-auto" onClick={() => act(() => downloadCsv("orders.csv",
       ["Order ID", "Date", "Member Name", "Total", "Status", "Payment Ref"],
@@ -244,6 +244,7 @@ function Orders({ store }: { store: Store }) {
     </button></div>
     <div className="field sm:max-w-xs"><label htmlFor="status-filter">Filter by status</label><select ref={statusFilter} id="status-filter" value={filter} onChange={(event) => { setFilter(event.target.value); setSelected(undefined); }}>
       <option value="">All statuses</option>{statuses.map((item) => <option key={item} value={item}>{statusLabel[item]}</option>)}
+      {Object.entries(resolutionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
     </select></div>
     {shown.length ? shown.map((order) => {
       const member = store.users.find((user) => user.id === order.userId);
@@ -255,7 +256,7 @@ function Orders({ store }: { store: Store }) {
         <div className="row">
           <div><h2>{orderCode(order.id)}</h2><p className="muted text-sm">{member?.name ?? "Member"} · {orderDate(order.createdAt)}</p><p>{money(order.total)}</p></div>
           <div className="row-actions">
-            <Status value={order.status} />
+            <OrderStatusBadges order={order} />
             <button type="button" className="button secondary" aria-expanded={selected === order.id}
               onClick={() => setSelected(selected === order.id ? undefined : order.id)}>{selected === order.id ? "Hide order" : "View order"}</button>
             {order.status === "paid" && <button type="button" className="button" disabled={Boolean(pending)}
@@ -357,6 +358,7 @@ function OrderForm({ order, contact, saving, markingPaid, requestingReturn, reso
   }
   return <>
     <div className="stack order-form">
+      <OrderResolution order={order} />
       <OrderLines order={order} />
       <p className="muted text-sm [overflow-wrap:anywhere]">Cash on Delivery / Pay to Admin{contact ? ` · ${contact}` : ""}</p>
       {hasOpenReturn && order.returnRequest && <div className="callout">

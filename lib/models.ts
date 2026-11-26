@@ -32,6 +32,7 @@ export const preferredResolutionLabels = {
   replacement: "Replacement (Palitan)",
   refund: "Refund (Ibalik ang pera)",
 };
+export const resolutionLabels = { refunded: "Refunded", replaced: "Replaced" } as const;
 export const returnDetailsMaxLength = 1000;
 export const returnPhotoMaxBytes = 512 * 1024;
 export const returnPhotoTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -51,6 +52,11 @@ export type Order = {
   refund_note?: string;
   refund_proof?: string;
 };
+export function getOrderResolution(order: Order): keyof typeof resolutionLabels | undefined {
+  // Resolved orders retain the request. Withdrawn requests are cleared.
+  if (order.status === "cancelled" && (order.returnRequest || order.refund_note || order.refund_proof)) return "refunded";
+  if (order.status === "completed" && (order.returnRequest || order.returnResolution)) return "replaced";
+}
 export const canSubmitPaymentReference = (order: Order) =>
   order.paymentMethod === "cod" && (order.status === "pending_payment" || order.status === "confirmed");
 export const canRequestReturn = ({ status, returnRequest }: Order) =>
