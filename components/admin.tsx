@@ -383,6 +383,8 @@ function OrderForm({ order, contact, saving, markingPaid, resolving, disabled, o
             <input type="file" accept={returnPhotoTypes.join(",")} disabled={readingPhoto}
               aria-describedby="replacement-photo-help" onChange={readPhoto} />
           </label>
+          {photo && <img className="h-auto w-auto max-h-[150px] max-w-[min(150px,100%)] rounded-md"
+            src={photo} alt="Replacement photo preview" />}
           <p id="replacement-photo-help" className="muted text-sm">JPEG, PNG, WebP, or GIF up to 512 KB.</p>
           {readingPhoto && <p className="muted text-sm" role="status">Reading photo…</p>}
           {photoError && <p className="callout error-text" role="alert">{photoError}</p>}
