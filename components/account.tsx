@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { Leaf } from "lucide-react";
+import { Eye, EyeOff, Leaf } from "lucide-react";
 import { login, register } from "../lib/storage";
 import { PendingLabel, usePendingAction } from "./shared";
 
@@ -11,6 +11,7 @@ export function Account({ registerMode, ready }: { registerMode: boolean; ready:
   const router = useRouter();
   const { pending, run } = usePendingAction();
   const [registered, setRegistered] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
@@ -34,7 +35,30 @@ export function Account({ registerMode, ready }: { registerMode: boolean; ready:
         <form onSubmit={submit} className="stack mt-6">
           {registerMode && <label>Name<input name="name" required maxLength={100} autoComplete="name" /></label>}
           <label>Email<input name="email" type="email" required maxLength={150} autoComplete="email" /></label>
-          <label>Password<input name="password" type="password" required minLength={registerMode ? 6 : undefined} maxLength={100} autoComplete={registerMode ? "new-password" : "current-password"} /></label>
+          <div className="password-field">
+            <label htmlFor="account-password">Password</label>
+            <div className="password-input">
+              <input
+                id="account-password"
+                name="password"
+                type={showPassword ? "text" : "password"}
+                required
+                minLength={registerMode ? 6 : undefined}
+                maxLength={100}
+                autoComplete={registerMode ? "new-password" : "current-password"}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={() => setShowPassword((visible) => !visible)}
+              >
+                {showPassword ? <EyeOff size={18} aria-hidden /> : <Eye size={18} aria-hidden />}
+              </button>
+            </div>
+          </div>
           {registerMode && <>
             <label>Member ID<input name="memberId" required maxLength={40} /></label>
             <label>Contact number<input name="contact" type="tel" required maxLength={20} autoComplete="tel" /></label>
